@@ -18,7 +18,7 @@ swing/
 │   ├── RL_PORTFOLIO_LAYER.md                # RL Portfolio layer documentation
 │   ├── TWIN_TRAINING.md                     # Training procedures
 │   ├── REGIME_DETECTION.md                  # Regime detection documentation
-│   ├── NEO4J_SETUP.md                       # Neo4j setup guide
+│   ├── NEO4J_SETUP.md                       # Neo4j setup guide (deprecated - now using parquet)
 │   ├── LOCAL_SETUP.md                       # Local database and storage setup guide
 │   ├── COLAB_TRAINING.md                    # Colab training workflow guide
 │   └── design.docx
@@ -36,7 +36,7 @@ swing/
 │   │   ├── ingestion.py                     # Prefect flows for data ingestion
 │   │   ├── sources.py                       # API clients (Polygon, Finnhub, FRED, VIX)
 │   │   ├── storage.py                       # Local filesystem and TimescaleDB storage
-│   │   ├── neo4j_client.py                  # Neo4j client for graph storage
+│   │   ├── neo4j_client.py                  # Neo4j client (deprecated - now using parquet)
 │   │   ├── validation.py                    # Data quality checks and validation
 │   │   └── rl_state_builder.py              # RL state builder for portfolio agent
 │   │
@@ -45,7 +45,8 @@ swing/
 │   │   ├── technical.py                     # Technical indicators (TA-Lib)
 │   │   ├── options.py                       # Options feature engineering (40 features)
 │   │   ├── cross_sectional.py               # Cross-sectional features
-│   │   ├── graph.py                         # Graph construction for GNN (with Neo4j persistence)
+│   │   ├── graph.py                         # Graph construction for GNN (parquet-based storage)
+│   │   ├── graph_storage.py                 # Parquet-based graph storage and retrieval
 │   │   ├── macro.py                         # Macro economic feature engineering
 │   │   ├── normalization.py                 # Feature normalization and scaling
 │   │   └── feast_client.py                 # Feast feature store client
@@ -140,7 +141,7 @@ swing/
 │
 ├── .gitignore
 ├── Dockerfile
-├── docker-compose.yml                       # Includes Neo4j service
+├── docker-compose.yml                       # Docker services (TimescaleDB, Redis)
 ├── Makefile
 ├── README.md
 └── requirements.txt
@@ -172,7 +173,7 @@ swing/
   - `load_from_local()`: Load data from local filesystem
   - Backward compatible with deprecated S3 functions
 - **TimescaleDB**: Time-series database for prices, features, recommendations (local via Docker)
-- **Neo4j**: Graph database for correlation relationships (local via Docker)
+- **Graph Storage**: Parquet files in `data/graphs/` for correlation graphs (computed daily, no database needed)
 - **Feast**: Feature store with local registry (`data/feast/registry.db`) and Redis online store
 
 #### Data Validation (`src/data/validation.py`)
@@ -208,11 +209,14 @@ swing/
 - Correlation to SPY
 - Peer comparisons
 
-#### Graph Features (`src/features/graph.py`)
+#### Graph Features (`src/features/graph.py`, `src/features/graph_storage.py`)
 - **compute_correlation_matrix**: Computes rolling correlation matrix
-- **build_correlation_graph**: Builds PyTorch Geometric graph with Neo4j persistence
-- **build_correlation_graph_from_neo4j**: Retrieves graph from Neo4j
+- **build_correlation_graph**: Builds PyTorch Geometric graph with parquet caching
+- **build_correlation_graph_from_parquet**: Retrieves graph from parquet cache
 - **build_heterogeneous_graph**: Creates heterogeneous graph with stocks, sectors, and macro nodes
+- **save_correlation_graph**: Saves graph edges to parquet
+- **load_correlation_graph**: Loads graph from parquet cache
+- **get_or_build_graph**: Gets from cache or computes fresh
 
 #### Macro Features (`src/features/macro.py`)
 - **add_macro_features**: Adds FRED indicators and VIX to feature DataFrame
@@ -295,7 +299,7 @@ swing/
   - Step 2: Load data from database
   - Step 3: Feature Engineering
   - Step 3.1: Market Regime Detection
-  - Step 3.5: Build and persist correlation graph to Neo4j
+  - Step 3.5: Build and cache correlation graph to parquet
   - Step 3.6: Options Features (if enabled) - computes 40 features per stock
   - Step 4: Text Features (LLM Agents)
   - Step 5: Model Inference (TwinManager for pilot stocks with options, fallback for others)
@@ -400,8 +404,8 @@ swing/
 3. **Correlation Graph**
    - Compute correlation matrix from prices
    - Build PyTorch Geometric graph
-   - Persist to Neo4j with weighted edges
-   - Retrieve from Neo4j for inference
+   - Cache to parquet files in `data/graphs/`
+   - Retrieve from parquet cache for inference (or recompute if missing)
 
 4. **Text Processing** (LLM Agents)
    - News summarization → Structured text features
@@ -409,7 +413,7 @@ swing/
 5. **Model Inference**
    - **Pilot Stocks**: Use TwinManager → Digital Twin predictions (with options encoder if enabled)
    - **Other Stocks**: Fallback to LightGBM/ARIMA
-   - Load graph from Neo4j → GNN processing
+   - Load graph from parquet cache → GNN processing
    - Options features passed to twins for gamma adjustment and PCR sentiment gating
 
 6. **Portfolio Construction**
@@ -491,9 +495,14 @@ swing/
 - **recommendations**: Final trade recommendations
 - **daily_briefs**: Daily market briefs
 
-### Neo4j Graph Schema
+### Graph Storage Format
 
-- **Nodes**: Stock (ticker), Sector, Macro
+- **Parquet Files**: `data/graphs/correlations/YYYY-MM-DD.parquet`
+  - Columns: `ticker1`, `ticker2`, `correlation`, `abs_correlation`
+- **Metadata**: `data/graphs/metadata/YYYY-MM-DD.json`
+  - Stores: `lookback_days`, `threshold`, `num_edges`, `num_nodes`, `computation_time`
+- **Computed Daily**: Graphs are built from price data and cached to parquet
+- **No Database**: Pure file-based storage using PyTorch Geometric and pandas
 - **Relationships**: 
   - `CORRELATES_WITH` (stock → stock, weighted by correlation)
   - `BELONGS_TO` (stock → sector)
@@ -533,7 +542,8 @@ See `config/config.example.yaml` for:
 - Storage configuration:
   - Local filesystem paths (`storage.local`)
   - Google Drive paths for Colab (`storage.google_drive`)
-  - TimescaleDB, Neo4j, Redis (all local via Docker)
+  - TimescaleDB, Redis (all local via Docker)
+  - Graph storage: Parquet files (no database needed)
   - Feast registry (local path)
 - Model configuration (foundation, twins, legacy models)
 - Options configuration:
@@ -559,7 +569,8 @@ See `config/config.example.yaml` for:
 The system uses a hybrid architecture:
 
 - **Local MacBook**:
-  - Databases: TimescaleDB, Neo4j, Redis (Docker Compose)
+  - Databases: TimescaleDB, Redis (Docker Compose)
+  - Graph Storage: Parquet files in `data/graphs/`
   - Storage: Local filesystem (`data/`)
   - Inference: FastAPI server running locally
   - Data ingestion: Daily pipeline runs locally
@@ -583,7 +594,7 @@ See [LOCAL_SETUP.md](./LOCAL_SETUP.md) for local setup and [COLAB_TRAINING.md](.
 3. **LoRA Adaptation**: Minimal parameters for stock-specific fine-tuning
 4. **Regime-Aware**: Both stock-level and market-level regime detection
 5. **RL Portfolio Optimization**: PPO-based agent learns optimal portfolio construction vs. heuristic priority scoring
-6. **Graph Persistence**: Neo4j for correlation graph storage and retrieval
+6. **Graph Persistence**: Parquet files for correlation graph storage and retrieval (computed daily from price data)
 7. **Macro Integration**: FRED and VIX data for macro context
 8. **Model Registry**: Singleton pattern for efficient model serving
 9. **Local-First Architecture**: All databases and storage run locally on MacBook

@@ -63,11 +63,9 @@ storage:
       type: "redis"
       connection_string: "redis://localhost:6379"
   
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: "YOUR_NEO4J_PASSWORD"
-    database: "neo4j"
+  # Graph storage (parquet-based, no database needed)
+  # Graphs are stored in data/graphs/ directory
+  # Computed daily from price correlations and cached to parquet files
 
 # Model Configuration
 models:

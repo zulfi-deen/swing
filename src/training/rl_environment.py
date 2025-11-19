@@ -286,7 +286,7 @@ class TradingEnvironment:
             macro_context=macro_context,
             prices_df=prices_df if not prices_df.empty else None,
             date=str(current_date),
-            neo4j_client=None,
+            config=self.config,
             options_features=options_features_dict if options_features_dict else None
         )
         

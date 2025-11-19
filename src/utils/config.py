@@ -46,24 +46,8 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
             config['api_keys']['openai'].get('api_key', '')
         )
     
-    # Override Neo4j config with environment variables
-    if 'storage' in config and 'neo4j' in config['storage']:
-        config['storage']['neo4j']['uri'] = os.getenv(
-            'NEO4J_URI',
-            config['storage']['neo4j'].get('uri', 'bolt://localhost:7687')
-        )
-        config['storage']['neo4j']['user'] = os.getenv(
-            'NEO4J_USER',
-            config['storage']['neo4j'].get('user', 'neo4j')
-        )
-        config['storage']['neo4j']['password'] = os.getenv(
-            'NEO4J_PASSWORD',
-            config['storage']['neo4j'].get('password', '')
-        )
-        config['storage']['neo4j']['database'] = os.getenv(
-            'NEO4J_DATABASE',
-            config['storage']['neo4j'].get('database', 'neo4j')
-        )
+    # Graph storage is now parquet-based, no Neo4j config needed
+    # (Keeping this section removed - graphs stored in data/graphs/ directory)
     
     return config
 

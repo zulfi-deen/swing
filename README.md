@@ -11,12 +11,12 @@ Data Sources (Polygon, Finnhub)
   → Data Ingestion (Prefect)
     - Equity data (OHLCV)
     - Options data (OI, Greeks, IV) [if enabled]
-  → Storage (Local Filesystem, TimescaleDB, Feast, Neo4j)
+  → Storage (Local Filesystem, TimescaleDB, Feast)
   → Feature Engineering
     - Technical indicators
     - Options features (40 features) [if enabled]
     - Cross-sectional features
-  → Correlation Graph (Neo4j) → GNN
+  → Correlation Graph (Parquet) → GNN
   → Foundation Model (Universal Market Intelligence)
   → Digital Twins (Stock-Specific Predictors)
     - Options encoder [if enabled]
@@ -32,7 +32,7 @@ Data Sources (Polygon, Finnhub)
 
 ### Hybrid Training Architecture
 
-- **Local MacBook**: Databases (TimescaleDB, Neo4j, Redis), storage, and inference
+- **Local MacBook**: Databases (TimescaleDB, Redis), storage, and inference
 - **Google Colab**: Model training with GPU acceleration
 - **Google Drive**: Data and model synchronization between MacBook and Colab
 
@@ -43,7 +43,7 @@ Data Sources (Polygon, Finnhub)
 - **Reinforcement Learning Portfolio Optimization**: PPO-based agent learns optimal portfolio construction from data
 - **Multi-Model Ensemble**: Combines TFT-GNN hybrid, LightGBM ranker, and ARIMA/GARCH
 - **LLM Agents**: Text processing, policy enforcement, and options-aware explanation generation
-- **Graph Neural Networks**: Captures inter-stock relationships via dynamic correlation graphs
+- **Graph Neural Networks**: Captures inter-stock relationships via dynamic correlation graphs (built daily from price data, cached to parquet)
 - **Local-First**: All databases and storage run locally on MacBook (no cloud dependencies)
 - **Hybrid Training**: Train models in Google Colab, run inference locally
 - **Explainability**: Every recommendation includes human-readable rationale with options context

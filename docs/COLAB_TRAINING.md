@@ -4,7 +4,7 @@ This guide explains how to train models in Google Colab while using your local M
 
 ## Architecture Overview
 
-- **Local MacBook**: Storage, databases (TimescaleDB, Neo4j, Redis), and inference
+- **Local MacBook**: Storage, databases (TimescaleDB, Redis), and inference
 - **Google Colab**: Model training with GPU acceleration
 - **Google Drive**: Data synchronization between MacBook and Colab
 
@@ -18,7 +18,7 @@ Ensure your local environment is configured:
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure databases (TimescaleDB, Neo4j, Redis)
+# Configure databases (TimescaleDB, Redis)
 docker-compose up -d
 
 # Set up configuration

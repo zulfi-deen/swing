@@ -81,10 +81,11 @@ Last Updated: 2025-01-27
   - Ready to train once data is available
 
 #### V3 RL Portfolio
-- [ ] **Neo4j Graph Loading** - Persistence works, loading fixed
-  - Graph persisted to Neo4j ✅
-  - Loading from Neo4j implemented ✅ (Fixed in audit)
-  - Fallback to computation if unavailable
+- [x] **Graph Storage** - Parquet-based storage implemented
+  - Graph computed daily from price data ✅
+  - Cached to parquet files ✅
+  - Loading from parquet cache ✅
+  - Fallback to computation if cache missing ✅
 
 ### ❌ Not Implemented (Future Work)
 
@@ -107,7 +108,7 @@ Last Updated: 2025-01-27
 4. ✅ **Stock Characteristics Table** - Already exists in schema.sql
 
 ### Phase 2: Important Fixes
-5. ✅ **Load Graph from Neo4j** - Inference now loads from Neo4j instead of recomputing
+5. ✅ **Graph Storage Migration** - Migrated from Neo4j to parquet-based storage
 6. ✅ **Fixed RL Reward Function** - Actual portfolio volatility calculation
 7. ✅ **Complete Priority Scoring Backtest** - Full implementation with price execution
 8. ✅ **Added MLflow Logging** - Foundation, weekly retraining, RL training

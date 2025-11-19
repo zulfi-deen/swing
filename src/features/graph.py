@@ -1,4 +1,4 @@
-"""Graph construction for GNN with Neo4j persistence"""
+"""Graph construction for GNN with parquet-based storage"""
 
 import torch
 from torch_geometric.data import Data, HeteroData
@@ -8,7 +8,7 @@ from typing import Tuple, Dict, Optional, List
 import logging
 
 from src.utils.tickers import TICKER_TO_SECTOR, SECTOR_TO_ID
-from src.data.neo4j_client import Neo4jClient
+from src.features.graph_storage import get_or_build_graph
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +69,22 @@ def build_correlation_graph(
     prices: pd.DataFrame,
     date: str,
     threshold: float = 0.3,
-    persist_to_neo4j: bool = True,
-    neo4j_client: Optional[object] = None,
-    sector_map: Optional[Dict[str, str]] = None
+    cache_to_parquet: bool = True,
+    config: Optional[Dict] = None,
+    sector_map: Optional[Dict[str, str]] = None,
+    force_recompute: bool = False
 ) -> Tuple[Data, Dict[str, int]]:
     """
-    Build dynamic graph based on rolling correlation and persist to Neo4j.
+    Build dynamic graph based on rolling correlation and cache to parquet.
     
     Args:
         prices: Historical price data
         date: Current date
         threshold: Correlation threshold for edge creation
-        persist_to_neo4j: Whether to persist graph to Neo4j
-        neo4j_client: Neo4j client instance (required if persist_to_neo4j=True)
-        sector_map: Optional mapping of ticker -> sector
+        cache_to_parquet: Whether to cache graph to parquet
+        config: Configuration dict (for storage paths)
+        sector_map: Optional mapping of ticker -> sector (unused, kept for compatibility)
+        force_recompute: If True, recompute even if cache exists
     
     Returns:
         PyTorch Geometric Data object and ticker_to_idx mapping
@@ -90,47 +92,60 @@ def build_correlation_graph(
     
     lookback_days = 30
     
-    # Compute correlation matrix
-    corr_matrix, tickers = compute_correlation_matrix(prices, date, lookback_days)
+    # Get or build graph (from cache or compute fresh)
+    if cache_to_parquet:
+        correlations, ticker_to_idx = get_or_build_graph(
+            prices,
+            date,
+            threshold,
+            lookback_days,
+            sector_map,
+            config,
+            force_recompute
+        )
+    else:
+        # Compute fresh without caching
+        corr_matrix, tickers = compute_correlation_matrix(prices, date, lookback_days)
+        
+        if corr_matrix.empty or not tickers:
+            return Data(x=torch.zeros((1, 128))), {}
+        
+        ticker_to_idx = {ticker: i for i, ticker in enumerate(tickers)}
+        correlations = {}
+        
+        for i, ticker_i in enumerate(tickers):
+            for j, ticker_j in enumerate(tickers):
+                if i < j:
+                    corr_value = corr_matrix.iloc[i, j]
+                    if abs(corr_value) > threshold:
+                        correlations[(ticker_i, ticker_j)] = float(corr_value)
     
-    if corr_matrix.empty or not tickers:
-        return Data(x=torch.zeros((1, 128))), {}
+    if not correlations:
+        # No edges found, return graph with isolated nodes
+        if not ticker_to_idx:
+            return Data(x=torch.zeros((1, 128))), {}
+        num_nodes = len(ticker_to_idx)
+        x = torch.zeros((num_nodes, 128))  # Placeholder
+        return Data(x=x), ticker_to_idx
     
-    # Create edges where correlation > threshold
-    ticker_to_idx = {ticker: i for i, ticker in enumerate(tickers)}
-    
-    # Prepare correlations for Neo4j persistence
-    correlations = {}
+    # Build edge_index and edge_attr from correlations
+    ticker_list = sorted(ticker_to_idx.keys())
     edge_index = []
     edge_attr = []
     
-    for i, ticker_i in enumerate(tickers):
-        for j, ticker_j in enumerate(tickers):
-            if i != j:
-                corr_value = corr_matrix.iloc[i, j]
-                if abs(corr_value) > threshold:
-                    edge_index.append([i, j])
-                    edge_attr.append(corr_value)
-                    # Store for Neo4j (only store once per pair, i < j)
-                    if i < j:
-                        correlations[(ticker_i, ticker_j)] = float(corr_value)
-    
-    # Persist to Neo4j if requested
-    if persist_to_neo4j and neo4j_client:
-        try:
-            neo4j_client.batch_upsert_correlations(
-                correlations,
-                date,
-                lookback_days=lookback_days,
-                sector_map=sector_map
-            )
-            logger.info(f"Persisted {len(correlations)} correlations to Neo4j for {date}")
-        except Exception as e:
-            logger.error(f"Error persisting to Neo4j: {e}")
+    for (ticker_i, ticker_j), corr_value in correlations.items():
+        idx_i = ticker_to_idx.get(ticker_i)
+        idx_j = ticker_to_idx.get(ticker_j)
+        
+        if idx_i is not None and idx_j is not None:
+            edge_index.append([idx_i, idx_j])
+            edge_attr.append(corr_value)
+            # Add reverse edge for undirected graph
+            edge_index.append([idx_j, idx_i])
+            edge_attr.append(corr_value)
     
     if not edge_index:
-        # No edges found, return graph with isolated nodes
-        num_nodes = len(tickers)
+        num_nodes = len(ticker_to_idx)
         x = torch.zeros((num_nodes, 128))  # Placeholder
         return Data(x=x), ticker_to_idx
     
@@ -138,67 +153,65 @@ def build_correlation_graph(
     edge_attr = torch.tensor(edge_attr, dtype=torch.float).unsqueeze(1)
     
     # Node features (will be filled by TFT embeddings later)
-    num_nodes = len(tickers)
+    num_nodes = len(ticker_to_idx)
     x = torch.zeros((num_nodes, 128))  # Placeholder
     
     graph = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     
+    logger.info(f"Built correlation graph: {num_nodes} nodes, {len(edge_index[0]) // 2} edges")
+    
     return graph, ticker_to_idx
 
 
-def build_correlation_graph_from_neo4j(
+def build_correlation_graph_from_parquet(
     date: str,
     tickers: Optional[List[str]] = None,
     threshold: float = 0.3,
-    neo4j_client: Optional[object] = None,
-    lookback_days: int = 30
+    config: Optional[Dict] = None
 ) -> Tuple[Data, Dict[str, int]]:
     """
-    Build correlation graph from Neo4j instead of computing from scratch.
+    Build correlation graph from parquet cache instead of computing from scratch.
     
     Args:
         date: Date of the correlation graph
         tickers: Optional list of tickers to filter
         threshold: Minimum absolute correlation
-        neo4j_client: Neo4j client instance
-        lookback_days: Lookback period for correlations
+        config: Configuration dict (for storage paths)
     
     Returns:
         PyTorch Geometric Data object and ticker_to_idx mapping
     """
     
-    if not neo4j_client:
-        logger.warning("No Neo4j client provided, returning empty graph")
-        return Data(x=torch.zeros((1, 128))), {}
+    from src.features.graph_storage import load_correlation_graph
     
-    # Get edges from Neo4j
-    edges, ticker_to_idx = neo4j_client.get_correlation_graph(
-        date,
-        tickers,
-        threshold,
-        lookback_days
-    )
+    # Load edges from parquet
+    edges_df, ticker_to_idx = load_correlation_graph(date, tickers, threshold, config)
     
-    if not edges:
-        logger.warning(f"No edges found in Neo4j for {date}")
+    if edges_df is None or not ticker_to_idx:
+        logger.warning(f"No graph found in cache for {date}")
         if ticker_to_idx:
             num_nodes = len(ticker_to_idx)
             return Data(x=torch.zeros((num_nodes, 128))), ticker_to_idx
         return Data(x=torch.zeros((1, 128))), {}
     
     # Convert to PyTorch Geometric format
-    ticker_list = sorted(ticker_to_idx.keys())
-    
     edge_index = []
     edge_attr = []
     
-    for ticker1, ticker2, weight in edges:
+    for _, row in edges_df.iterrows():
+        ticker1 = row['ticker1']
+        ticker2 = row['ticker2']
+        corr_value = row['correlation']
+        
         idx1 = ticker_to_idx.get(ticker1)
         idx2 = ticker_to_idx.get(ticker2)
         
         if idx1 is not None and idx2 is not None:
             edge_index.append([idx1, idx2])
-            edge_attr.append(weight)
+            edge_attr.append(corr_value)
+            # Add reverse edge for undirected graph
+            edge_index.append([idx2, idx1])
+            edge_attr.append(corr_value)
     
     if not edge_index:
         num_nodes = len(ticker_to_idx)
@@ -212,7 +225,7 @@ def build_correlation_graph_from_neo4j(
     
     graph = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     
-    logger.info(f"Built graph from Neo4j: {num_nodes} nodes, {len(edge_index[0])} edges")
+    logger.info(f"Built graph from parquet cache: {num_nodes} nodes, {len(edge_index[0]) // 2} edges")
     
     return graph, ticker_to_idx
 
@@ -221,7 +234,7 @@ def build_heterogeneous_graph(
     prices_df: pd.DataFrame,
     date: str,
     threshold: float = 0.3,
-    neo4j_client: Optional[Neo4jClient] = None
+    config: Optional[Dict] = None
 ) -> HeteroData:
     """
     Build heterogeneous graph with stocks, sectors, and macro nodes.
@@ -230,7 +243,7 @@ def build_heterogeneous_graph(
         prices_df: Historical price data
         date: Current date
         threshold: Correlation threshold for stock-stock edges
-        neo4j_client: Optional Neo4j client for persistence
+        config: Optional config dict for graph storage paths
     
     Returns:
         HeteroData object with multiple node types and edge types

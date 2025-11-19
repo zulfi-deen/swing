@@ -10,10 +10,9 @@ import torch
 
 from src.data.ingestion import daily_data_ingestion_flow
 from src.data.storage import get_timescaledb_engine, save_to_timescaledb, load_from_local
-from src.data.neo4j_client import Neo4jClient
 from src.features.technical import compute_all_technical_features
 from src.features.cross_sectional import compute_cross_sectional_features, compute_correlation_features
-from src.features.graph import build_correlation_graph, build_correlation_graph_from_neo4j
+from src.features.graph import build_correlation_graph, build_correlation_graph_from_parquet
 from src.features.options import compute_options_features_batch, get_default_options_features
 from src.pipeline.batch_preparation import prepare_batch_for_twin
 from src.models.ensemble import ensemble_predictions, LightGBMRanker
@@ -38,18 +37,7 @@ class PipelineOrchestrator:
         self.config = load_config(config_path)
         self.db_engine = get_timescaledb_engine()
         
-        # Initialize Neo4j client
-        neo4j_config = self.config.get('storage', {}).get('neo4j', {})
-        try:
-            self.neo4j_client = Neo4jClient(
-                uri=neo4j_config.get('uri'),
-                user=neo4j_config.get('user'),
-                password=neo4j_config.get('password'),
-                database=neo4j_config.get('database')
-            )
-        except Exception as e:
-            logger.warning(f"Could not initialize Neo4j client: {e}")
-            self.neo4j_client = None
+        # Graph storage is now parquet-based, no Neo4j client needed
         
         # Initialize agents
         self.text_agent = TextSummarizerAgent(
@@ -185,9 +173,9 @@ class PipelineOrchestrator:
             features_df['market_regime_name'] = 'Sideways'
             logger.warning("SPY data not available, using default market regime")
         
-        # Step 3.5: Build and persist correlation graph to Neo4j
-        logger.info("Step 3.5: Building and persisting correlation graph to Neo4j")
-        self._build_and_persist_graph(prices_df, date, tickers)
+        # Step 3.5: Build and cache correlation graph to parquet
+        logger.info("Step 3.5: Building and caching correlation graph to parquet")
+        self._build_and_cache_graph(prices_df, date, tickers)
         
         # Step 3.6: Options Features
         logger.info("Step 3.6: Computing options features")
@@ -423,34 +411,30 @@ class PipelineOrchestrator:
         
         return options_features
     
-    def _build_and_persist_graph(
+    def _build_and_cache_graph(
         self,
         prices_df: pd.DataFrame,
         date: str,
         tickers: List[str]
     ):
-        """Build correlation graph and persist to Neo4j."""
+        """Build correlation graph and cache to parquet."""
         
-        if not self.neo4j_client:
-            logger.warning("Neo4j client not available, skipping graph persistence")
-            return
-        
-        # Build sector map
+        # Build sector map (for compatibility, not used in parquet storage)
         sector_map = {ticker: TICKER_TO_SECTOR.get(ticker) for ticker in tickers}
         
-        # Build graph and persist to Neo4j
+        # Build graph and cache to parquet
         try:
             build_correlation_graph(
                 prices_df,
                 date,
                 threshold=self.config['models']['gnn'].get('edge_threshold', 0.3),
-                persist_to_neo4j=True,
-                neo4j_client=self.neo4j_client,
+                cache_to_parquet=True,
+                config=self.config,
                 sector_map=sector_map
             )
-            logger.info(f"Successfully persisted correlation graph to Neo4j for {date}")
+            logger.info(f"Successfully cached correlation graph to parquet for {date}")
         except Exception as e:
-            logger.error(f"Error building/persisting graph: {e}")
+            logger.error(f"Error building/caching graph: {e}")
     
     def _process_text_features(
         self,
@@ -507,23 +491,24 @@ class PipelineOrchestrator:
         else:
             latest_features = features_df.groupby('ticker').last().reset_index()
         
-        # Load correlation graph from Neo4j (if available)
+        # Load correlation graph from parquet cache (if available)
         graph = None
         ticker_to_idx = {}
-        if self.neo4j_client:
-            try:
-                tickers = latest_features['ticker'].unique().tolist()
-                graph, ticker_to_idx = build_correlation_graph_from_neo4j(
-                    date=date,
-                    tickers=tickers,
-                    threshold=self.config['models']['gnn'].get('edge_threshold', 0.3),
-                    neo4j_client=self.neo4j_client,
-                    lookback_days=30
-                )
-                logger.info(f"Loaded correlation graph from Neo4j: {len(ticker_to_idx)} nodes")
-            except Exception as e:
-                logger.warning(f"Could not load graph from Neo4j: {e}. Computing from scratch.")
-                graph = None
+        try:
+            tickers = latest_features['ticker'].unique().tolist()
+            graph, ticker_to_idx = build_correlation_graph_from_parquet(
+                date=date,
+                tickers=tickers,
+                threshold=self.config['models']['gnn'].get('edge_threshold', 0.3),
+                config=self.config
+            )
+            if graph and ticker_to_idx:
+                logger.info(f"Loaded correlation graph from parquet cache: {len(ticker_to_idx)} nodes")
+            else:
+                logger.info("No cached graph found, will compute from scratch if needed")
+        except Exception as e:
+            logger.warning(f"Could not load graph from parquet cache: {e}. Will compute from scratch if needed.")
+            graph = None
         
         # Use TwinManager for pilot stocks, fallback to LightGBM for others
         pilot_tickers = self.config.get('models', {}).get('twins', {}).get('pilot_tickers', [])
@@ -744,7 +729,7 @@ class PipelineOrchestrator:
             macro_context=macro_context,
             prices_df=None,  # Would use actual prices in production
             date=None,
-            neo4j_client=self.neo4j_client,
+            config=self.config,
             options_features=options_features
         )
         

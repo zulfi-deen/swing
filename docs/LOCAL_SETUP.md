@@ -6,7 +6,8 @@ This guide covers setting up the Swing Trading System to run entirely on your lo
 
 The system is designed to run locally with the following components:
 
-- **Databases**: TimescaleDB, Neo4j, Redis (via Docker Compose)
+- **Databases**: TimescaleDB, Redis (via Docker Compose)
+- **Graph Storage**: Parquet files in `data/graphs/` (computed daily, no database needed)
 - **Storage**: Local filesystem (replaced S3)
 - **Inference**: Local MacBook
 - **Training**: Google Colab (optional, see [COLAB_TRAINING.md](./COLAB_TRAINING.md))
@@ -73,10 +74,8 @@ storage:
     user: "postgres"
     password: "YOUR_PASSWORD"
   
-  neo4j:
-    uri: "bolt://localhost:7687"
-    user: "neo4j"
-    password: "YOUR_NEO4J_PASSWORD"
+  # Graph storage (parquet-based, no database needed)
+  # Graphs are stored in data/graphs/ directory
   
   feast:
     registry_path: "data/feast/registry.db"  # Local Feast registry
@@ -92,7 +91,7 @@ rl_portfolio:
 
 ## Step 3: Start Local Databases
 
-The system uses Docker Compose to run three databases locally:
+The system uses Docker Compose to run databases locally:
 
 ### Start All Databases
 
@@ -106,8 +105,9 @@ docker-compose ps
 
 This starts:
 - **TimescaleDB** on `localhost:5432` (PostgreSQL with time-series extensions)
-- **Neo4j** on `localhost:7687` (Bolt) and `localhost:7474` (HTTP)
 - **Redis** on `localhost:6379` (for Feast online store)
+
+**Note**: Correlation graphs are stored as parquet files in `data/graphs/` and computed daily from price data. No graph database is needed.
 
 ### Verify Database Connections
 
@@ -115,8 +115,8 @@ This starts:
 # Test TimescaleDB
 psql -h localhost -U postgres -d swing_trading -c "SELECT version();"
 
-# Test Neo4j (open in browser)
-open http://localhost:7474
+# Graph storage directory will be created automatically when graphs are computed
+ls -la data/graphs/
 
 # Test Redis
 redis-cli -h localhost -p 6379 ping
@@ -242,6 +242,11 @@ swing/
 │   ├── processed/                 # Processed features
 │   │   └── features/
 │   │       └── options/           # Processed options features (if enabled)
+│   ├── graphs/                    # Correlation graph storage (parquet)
+│   │   ├── correlations/          # Daily correlation edges
+│   │   │   └── correlations_YYYY-MM-DD.parquet
+│   │   └── metadata/             # Graph construction metadata
+│   │       └── metadata_YYYY-MM-DD.json
 │   └── feast/                     # Feast feature store
 │       └── registry.db
 │
@@ -262,8 +267,8 @@ swing/
 # Backup TimescaleDB
 docker exec swing-timescaledb pg_dump -U postgres swing_trading > backup_$(date +%Y%m%d).sql
 
-# Backup Neo4j (requires Neo4j tools)
-docker exec swing-neo4j neo4j-admin dump --database=neo4j --to=/backups/neo4j.dump
+# Backup graph storage (parquet files)
+tar -czf backup_graphs_$(date +%Y%m%d).tar.gz data/graphs/
 ```
 
 ### Stop Databases
@@ -284,7 +289,6 @@ docker-compose logs -f
 
 # Specific service
 docker-compose logs -f timescaledb
-docker-compose logs -f neo4j
 docker-compose logs -f redis
 ```
 
@@ -304,10 +308,10 @@ docker-compose logs timescaledb
 docker-compose restart timescaledb
 ```
 
-**Problem**: Neo4j authentication fails
-- Default password is `changeme` (set via `NEO4J_PASSWORD` env var)
-- Change password in Neo4j browser: `http://localhost:7474`
-- Update `config.yaml` with new password
+**Problem**: Graph files not found
+- Graphs are computed automatically during pipeline execution
+- Check `data/graphs/correlations/` directory for parquet files
+- If missing, run the pipeline once to generate graphs
 
 ### Storage Issues
 
@@ -364,16 +368,13 @@ FROM prices
 GROUP BY hour, ticker;
 ```
 
-### Neo4j Memory Settings
+### Graph Storage
 
-Edit `docker-compose.yml` to increase memory:
+Graphs are stored as parquet files in `data/graphs/`:
+- `correlations/YYYY-MM-DD.parquet`: Daily correlation edges
+- `metadata/YYYY-MM-DD.json`: Graph construction metadata
 
-```yaml
-neo4j:
-  environment:
-    NEO4J_dbms_memory_heap_initial__size: 2g
-    NEO4J_dbms_memory_heap_max__size: 4g
-```
+No database configuration needed - graphs are computed from price data and cached to parquet.
 
 ## Training Models
 
@@ -422,7 +423,6 @@ You can override config settings with environment variables:
 
 ```bash
 export TIMESCALEDB_PASSWORD=your_password
-export NEO4J_PASSWORD=your_password
 export POLYGON_API_KEY=your_key
 export FINNHUB_API_KEY=your_key
 export OPENAI_API_KEY=your_key

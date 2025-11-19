@@ -16,7 +16,7 @@ prefect-aws>=0.3.0
 boto3>=1.28.0
 psycopg2-binary>=2.9.0
 sqlalchemy>=2.0.0
-neo4j>=5.15.0
+pyarrow>=14.0.0  # For parquet file I/O (graph storage)
 
 # Time-Series Database
 # TimescaleDB is a PostgreSQL extension, so psycopg2-binary (already listed above) is sufficient
