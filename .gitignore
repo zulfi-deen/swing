@@ -2,15 +2,6 @@
 __pycache__/
 *.py[cod]
 
-# Data artifacts
-data/
-!data/**/*.py
-feature_repo/data/
-data/feast/
-mlruns/
-logs/
-tmp/
-
 # Serialized datasets or exports
 *.csv
 *.tsv
@@ -20,8 +11,6 @@ tmp/
 *.arrow
 
 # Model artifacts
-models/
-!models/**/*.py
 checkpoints/
 saved_models/
 *.pt
