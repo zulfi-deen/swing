@@ -77,6 +77,11 @@ swing/
 pip install -r requirements.txt
 ```
 
+**Note**: The codebase uses PyTorch Lightning for all training. Key dependencies:
+- `pytorch-lightning>=2.1.0` - Training orchestration
+- `pytorch-forecasting>=1.0.0` - Temporal Fusion Transformer support
+- `torch-geometric>=2.4.0` - Graph Neural Networks
+
 2. **Configure Environment**
 ```bash
 cp config/config.example.yaml config/config.yaml
@@ -133,6 +138,41 @@ Key configuration options in `config/config.yaml`:
 - RL Portfolio configuration (with options signals support)
 - Training configuration (local vs Colab)
 - Risk rules and constraints
+
+## Training
+
+All model training uses **PyTorch Lightning** for unified orchestration, logging, and checkpointing.
+
+### Unified Training CLI
+
+Use `scripts/train.py` to train any model:
+
+```bash
+# Train foundation model
+python scripts/train.py foundation --use-synthetic
+
+# Train digital twin for a ticker
+python scripts/train.py twin --ticker AAPL --lookback-days 180
+
+# Train RL portfolio agent
+python scripts/train.py rl --start-date 2023-01-01 --end-date 2024-01-01 --num-episodes 1000
+
+# Train LightGBM ranker
+python scripts/train.py lightgbm --start-date 2022-01-01 --end-date 2024-12-31
+```
+
+### Training Components
+
+- **Foundation Model** (`src/training/train_foundation.py`): Universal market intelligence pre-training
+- **Digital Twins** (`src/training/train_twins_lightning.py`): Per-stock fine-tuning with Lightning
+- **RL Portfolio Agent** (`src/training/train_rl_portfolio_lightning.py`): PPO-based portfolio optimization
+- **LightGBM Ranker** (`src/training/train_lightgbm_lightning.py`): Cross-sectional ranking model
+
+All training scripts use:
+- Lightning DataModules for data loading (`src/training/data_modules.py`)
+- Shared utilities for callbacks, loggers, and trainers (`src/training/lightning_utils.py`)
+- MLflow integration for experiment tracking
+- Automatic checkpointing and early stopping
 
 ## Daily Pipeline
 

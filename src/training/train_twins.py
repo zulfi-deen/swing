@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from src.models.foundation import StockTwinFoundation, load_foundation_model
 from src.models.digital_twin import StockDigitalTwin
+from src.training.train_twins_lightning import fine_tune_twin as fine_tune_twin_lightning
 from src.data.storage import get_stock_characteristics, compute_stock_characteristics, get_timescaledb_engine
 from src.utils.config import load_config
 from src.utils.colab_utils import setup_colab_environment, is_colab
@@ -183,7 +184,7 @@ def fine_tune_twin(
     lookback_days: int = 180
 ) -> StockDigitalTwin:
     """
-    Fine-tune twin for a ticker.
+    Fine-tune twin for a ticker (delegates to Lightning implementation).
     
     Args:
         ticker: Stock ticker
@@ -194,59 +195,7 @@ def fine_tune_twin(
     Returns:
         Fine-tuned twin
     """
-    
-    config = config or load_config()
-    
-    # Get stock characteristics
-    stock_chars = get_stock_characteristics(ticker)
-    if not stock_chars:
-        # Compute if not available
-        logger.info(f"Computing stock characteristics for {ticker}")
-        engine = get_timescaledb_engine()
-        query = f"""
-            SELECT * FROM prices
-            WHERE ticker = '{ticker}'
-            ORDER BY time DESC
-            LIMIT {lookback_days}
-        """
-        prices_df = pd.read_sql(query, engine)
-        stock_chars = compute_stock_characteristics(prices_df, ticker)
-    
-    # Create fine-tuner
-    fine_tuner = TwinFineTuner(foundation_model, ticker, stock_chars, config)
-    
-    # Load stock data
-    engine = get_timescaledb_engine()
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=lookback_days)
-    
-    query = f"""
-        SELECT * FROM prices
-        WHERE ticker = '{ticker}'
-        AND time >= '{start_date}'
-        AND time <= '{end_date}'
-        ORDER BY time
-    """
-    
-    stock_data = pd.read_sql(query, engine)
-    
-    if stock_data.empty:
-        logger.warning(f"No data found for {ticker}, skipping fine-tuning")
-        return fine_tuner.twin
-    
-    # Fine-tune
-    logger.info(f"Fine-tuning twin for {ticker}")
-    metrics = fine_tuner.fine_tune(stock_data)
-    logger.info(f"Fine-tuning complete for {ticker}, final loss: {metrics['final_loss']:.6f}")
-    
-    # Get models path based on environment
-    _, models_path = setup_colab_environment(config)
-    checkpoint_dir = os.path.join(models_path, 'twins', ticker)
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    
-    # Save
-    fine_tuner.save(checkpoint_dir)
-    
-    return fine_tuner.twin
+    # Use Lightning-based fine-tuning
+    return fine_tune_twin_lightning(ticker, foundation_model, config, lookback_days)
 
 

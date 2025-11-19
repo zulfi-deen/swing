@@ -55,8 +55,13 @@ def update_stock_characteristics_task(ticker: str):
 def fine_tune_twin_task(ticker: str, foundation_model, config: dict):
     """Fine-tune twin for a ticker."""
     try:
-        twin, metrics = fine_tune_twin(ticker, foundation_model, config, return_metrics=True)
+        twin = fine_tune_twin(ticker, foundation_model, config)
         logger.info(f"Successfully fine-tuned twin for {ticker}")
+        # Extract metrics from twin if available
+        metrics = {}
+        if hasattr(twin, 'get_stock_characteristics'):
+            chars = twin.get_stock_characteristics()
+            metrics = {'current_alpha': chars.get('current_alpha', 0.0)}
         return {'ticker': ticker, 'status': 'success', 'metrics': metrics}
     except Exception as e:
         logger.error(f"Error fine-tuning twin for {ticker}: {e}")

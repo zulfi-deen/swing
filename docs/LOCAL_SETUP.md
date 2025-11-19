@@ -31,6 +31,9 @@ pip install -r requirements.txt
 **Note**: 
 - TimescaleDB does not require a Python package (it's a PostgreSQL extension). The `psycopg2-binary` package (already in requirements) is sufficient for connecting to TimescaleDB.
 - The codebase uses `talib` (TA-Lib) for technical analysis, not `pandas-ta`. The `pandas-ta` package is not included in requirements.
+- **All training uses PyTorch Lightning** (`pytorch-lightning>=2.1.0`) for unified orchestration. Optional dependencies:
+  - `pytorch-forecasting>=1.0.0` - Required for foundation model training (TFT)
+  - `torch-geometric>=2.4.0` - Required for GNN components
 
 ## Step 2: Configure Environment
 
@@ -372,11 +375,46 @@ neo4j:
     NEO4J_dbms_memory_heap_max__size: 4g
 ```
 
+## Training Models
+
+All model training uses **PyTorch Lightning** for unified orchestration. You can train models locally or in Google Colab.
+
+### Quick Training Examples
+
+```bash
+# Train foundation model (with synthetic data for testing)
+python scripts/train.py foundation --use-synthetic
+
+# Train digital twin for a specific ticker
+python scripts/train.py twin --ticker AAPL --lookback-days 180
+
+# Train RL portfolio agent
+python scripts/train.py rl --start-date 2023-01-01 --end-date 2024-01-01 --num-episodes 1000
+
+# Train LightGBM ranker
+python scripts/train.py lightgbm --start-date 2022-01-01 --end-date 2024-12-31
+```
+
+### Config-Driven Training (LightningCLI)
+
+For more advanced configuration, you can use LightningCLI with YAML configs:
+
+```bash
+# Foundation training with config file
+python -m src.training.cli_foundation fit --config config/foundation_config.yaml
+
+# Twin training with config file
+python -m src.training.cli_twin fit --config config/twin_config.yaml
+```
+
+See [LIGHTNING_REFACTOR.md](./LIGHTNING_REFACTOR.md) for complete training documentation.
+
 ## Next Steps
 
 - **Training**: See [COLAB_TRAINING.md](./COLAB_TRAINING.md) for training models in Google Colab
 - **Architecture**: See [PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md) for system architecture
 - **Twin Training**: See [TWIN_TRAINING.md](./TWIN_TRAINING.md) for digital twin training procedures
+- **Lightning Refactor**: See [LIGHTNING_REFACTOR.md](./LIGHTNING_REFACTOR.md) for PyTorch Lightning training details
 
 ## Environment Variables
 

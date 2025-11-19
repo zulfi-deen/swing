@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src.agents.portfolio_rl_agent import PortfolioRLAgent, PPOTrainer
 from src.training.rl_environment import TradingEnvironment
+from src.training.train_rl_portfolio_lightning import train_rl_agent as train_rl_agent_lightning
 from src.data.storage import get_timescaledb_engine, load_from_local
 from src.utils.config import load_config
 from src.utils.mlflow_logger import log_metrics, log_model
@@ -151,113 +152,19 @@ def train_rl_agent(
     config: Optional[Dict] = None
 ):
     """
-    Train RL agent using historical data.
+    Train RL agent using Lightning (delegates to Lightning implementation).
     
     Each episode = 60 trading days (3 months)
     """
+    # Update config with episode_length
+    if config is None:
+        config = {}
+    if 'rl_portfolio' not in config:
+        config['rl_portfolio'] = {}
+    config['rl_portfolio']['episode_length'] = episode_length
     
-    config = config or {}
-    checkpoint_dir = Path(checkpoint_dir)
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    
-    trainer = PPOTrainer(agent, config)
-    
-    best_episode_return = float('-inf')
-    
-    for episode in range(num_episodes):
-        
-        # Reset environment to random start date
-        state = env.reset()
-        
-        episode_return = 0.0
-        rollout_buffer = []
-        
-        for day in range(episode_length):
-            
-            # Get action from policy
-            action, log_prob, entropy, value = agent(state, deterministic=False)
-            
-            # Store action metadata
-            action_dict = {
-                'action': action,
-                'log_prob': log_prob.item(),
-                'value': value.item(),
-                'entropy': entropy.item()
-            }
-            
-            # Step environment
-            next_state, reward, done, info = env.step(action)
-            
-            # Store transition
-            rollout_buffer.append((
-                state,
-                action_dict,
-                reward,
-                next_state,
-                done
-            ))
-            
-            episode_return += reward
-            state = next_state
-            
-            if done:
-                break
-        
-        # Train on rollout
-        if rollout_buffer:
-            trainer.train_step(rollout_buffer)
-        
-        # Log metrics
-        if episode % 10 == 0:
-            logger.info(f"Episode {episode}: Return = {episode_return:.2f}, Portfolio Value = {info.get('portfolio_value', 0):.2f}")
-            
-            metrics = {
-                'episode_return': episode_return,
-                'episode_length': len(rollout_buffer),
-                'portfolio_value': info.get('portfolio_value', 0),
-                'num_positions': info.get('num_positions', 0),
-                'avg_reward': episode_return / len(rollout_buffer) if rollout_buffer else 0,
-            }
-            
-            try:
-                import mlflow
-                for key, value in metrics.items():
-                    mlflow.log_metric(key, value, step=episode)
-            except Exception as e:
-                logger.warning(f"Error logging metrics: {e}")
-        
-        # Save checkpoint
-        if episode % 100 == 0:
-            checkpoint_path = checkpoint_dir / f'agent_episode_{episode}.pt'
-            torch.save({
-                'episode': episode,
-                'agent_state_dict': agent.state_dict(),
-                'optimizer_state_dict': trainer.optimizer.state_dict(),
-                'episode_return': episode_return,
-            }, checkpoint_path)
-            logger.info(f"Saved checkpoint: {checkpoint_path}")
-        
-        # Save best model
-        if episode_return > best_episode_return:
-            best_episode_return = episode_return
-            best_path = checkpoint_dir / 'agent_best.pt'
-            torch.save({
-                'episode': episode,
-                'agent_state_dict': agent.state_dict(),
-                'optimizer_state_dict': trainer.optimizer.state_dict(),
-                'episode_return': episode_return,
-            }, best_path)
-            logger.info(f"New best model: episode {episode}, return = {episode_return:.2f}")
-    
-    # Save final model
-    final_path = checkpoint_dir / 'agent_final.pt'
-    torch.save({
-        'episode': num_episodes,
-        'agent_state_dict': agent.state_dict(),
-        'optimizer_state_dict': trainer.optimizer.state_dict(),
-        'episode_return': episode_return,
-    }, final_path)
-    logger.info(f"Training complete. Final model saved: {final_path}")
+    # Use Lightning-based training
+    train_rl_agent_lightning(agent, env, config, num_episodes, checkpoint_dir)
 
 
 def main():

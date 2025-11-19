@@ -7,14 +7,14 @@ Uses PyTorch Lightning for training orchestration.
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.loggers import MLFlowLogger
+from pytorch_lightning.cli import LightningCLI
 from typing import Dict, Optional
 import logging
 import os
 
 from src.models.foundation import StockTwinFoundation
-from src.training.synthetic_data import create_synthetic_dataset
+from src.training.data_modules import FoundationDataModule
+from src.training.lightning_utils import create_callbacks, create_logger, create_trainer
 from src.utils.config import load_config
 from src.utils.colab_utils import setup_colab_environment, is_colab
 
@@ -60,10 +60,16 @@ class FoundationTrainingModule(pl.LightningModule):
     PyTorch Lightning module for foundation model training.
     """
     
-    def __init__(self, config: Dict):
+    def __init__(
+        self,
+        config: Dict,
+        learning_rate: float = 1e-3,
+        weight_decay: float = 1e-5,
+        num_epochs: int = 100
+    ):
         super().__init__()
         
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['config'])
         self.config = config
         
         # Model
@@ -74,26 +80,66 @@ class FoundationTrainingModule(pl.LightningModule):
         self.loss_fn = FoundationLoss()
         
         # Training config
-        training_config = config.get('training', {}).get('foundation', {})
-        self.learning_rate = training_config.get('learning_rate', 1e-3)
-        self.weight_decay = training_config.get('weight_decay', 1e-5)
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.num_epochs = num_epochs
+        
+        # TFT initialization flag
+        self.tft_initialized = False
     
-    def forward(self, batch: Dict, graph: Optional[torch.Tensor] = None):
+    def on_train_start(self):
+        """Initialize TFT from dataset when training starts."""
+        if not self.tft_initialized:
+            datamodule = self.trainer.datamodule
+            if datamodule and datamodule.training_dataset:
+                logger.info("Initializing Foundation TFT from dataset...")
+                self.foundation.initialize_tft(datamodule.training_dataset)
+                self.tft_initialized = True
+                logger.info("TFT initialized successfully")
+    
+    def forward(self, batch, graph: Optional[torch.Tensor] = None):
         """Forward pass."""
-        return self.foundation.pretrain_forward(batch, graph)
+        # Handle TFT batch format
+        if isinstance(batch, dict):
+            return self.foundation.pretrain_forward(batch, graph)
+        else:
+            # TFT TimeSeriesDataSet returns batch directly
+            return self.foundation.pretrain_forward({'features': batch}, graph)
     
     def training_step(self, batch, batch_idx):
         """Training step."""
-        predictions = self(batch['features'], batch.get('graph'))
-        loss = self.loss_fn(predictions, batch['targets'])
+        # TFT dataset returns (x, y) tuple
+        if isinstance(batch, tuple):
+            x, y = batch
+            predictions = self(x)
+            targets = y
+        else:
+            predictions = self(batch)
+            targets = batch.get('targets', batch.get('y'))
+        
+        # Extract targets from TFT format if needed
+        if isinstance(targets, dict):
+            targets = targets.get('target', targets.get('return_5d'))
+        
+        loss = self.loss_fn(predictions, targets)
         
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        predictions = self(batch['features'], batch.get('graph'))
-        loss = self.loss_fn(predictions, batch['targets'])
+        if isinstance(batch, tuple):
+            x, y = batch
+            predictions = self(x)
+            targets = y
+        else:
+            predictions = self(batch)
+            targets = batch.get('targets', batch.get('y'))
+        
+        if isinstance(targets, dict):
+            targets = targets.get('target', targets.get('return_5d'))
+        
+        loss = self.loss_fn(predictions, targets)
         
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
@@ -108,7 +154,7 @@ class FoundationTrainingModule(pl.LightningModule):
         
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=self.config.get('training', {}).get('foundation', {}).get('num_epochs', 100)
+            T_max=self.num_epochs
         )
         
         return {
@@ -120,128 +166,12 @@ class FoundationTrainingModule(pl.LightningModule):
         }
 
 
-def create_tft_dataset_from_db(
-    tickers: list,
-    start_date: str,
-    end_date: str,
-    max_encoder_length: int = 60,
-    max_prediction_length: int = 5
-):
-    """
-    Create pytorch-forecasting TimeSeriesDataSet from TimescaleDB.
-    
-    Returns:
-        Training and validation TimeSeriesDataSet objects
-    """
-    try:
-        from pytorch_forecasting import TimeSeriesDataSet
-        from pytorch_forecasting.data import GroupNormalizer
-    except ImportError:
-        logger.error("pytorch-forecasting not installed. Run: pip install pytorch-forecasting")
-        return None, None
-    
-    from src.data.storage import get_timescaledb_engine
-    import pandas as pd
-    
-    logger.info(f"Loading data from TimescaleDB for {len(tickers)} tickers")
-    
-    engine = get_timescaledb_engine()
-    
-    # Load prices and features
-    ticker_list = "', '".join(tickers)
-    query = f"""
-        SELECT 
-            p.time,
-            p.ticker,
-            p.close,
-            p.volume,
-            p.open,
-            p.high,
-            p.low,
-            f.rsi_14,
-            f.macd,
-            f.atr_14,
-            f.volume_z_score,
-            f.sentiment_score,
-            sc.beta,
-            sc.sector,
-            sc.liquidity_regime
-        FROM prices p
-        LEFT JOIN features f ON p.time = f.time AND p.ticker = f.ticker
-        LEFT JOIN stock_characteristics sc ON p.ticker = sc.ticker
-        WHERE p.ticker IN ('{ticker_list}')
-        AND p.time >= '{start_date}' AND p.time <= '{end_date}'
-        ORDER BY p.ticker, p.time
-    """
-    
-    df = pd.read_sql(query, engine)
-    
-    if df.empty:
-        logger.error("No data loaded from database")
-        return None, None
-    
-    # Prepare data for TimeSeriesDataSet
-    df['time_idx'] = (df['time'] - df['time'].min()).dt.days
-    df['target'] = df.groupby('ticker')['close'].pct_change(periods=5).shift(-5)  # 5-day forward return
-    df = df.dropna(subset=['target'])
-    
-    # Fill missing features
-    df['rsi_14'] = df['rsi_14'].fillna(50)
-    df['macd'] = df['macd'].fillna(0)
-    df['atr_14'] = df['atr_14'].fillna(0.02)
-    df['volume_z_score'] = df['volume_z_score'].fillna(0)
-    df['sentiment_score'] = df['sentiment_score'].fillna(0.5)
-    df['beta'] = df['beta'].fillna(1.0)
-    df['liquidity_regime'] = df['liquidity_regime'].fillna(1)
-    
-    # Split train/val (80/20)
-    split_time = df['time_idx'].quantile(0.8)
-    train_df = df[df['time_idx'] <= split_time]
-    val_df = df[df['time_idx'] > split_time]
-    
-    logger.info(f"Train size: {len(train_df)}, Val size: {len(val_df)}")
-    
-    # Create TimeSeriesDataSet
-    training = TimeSeriesDataSet(
-        train_df,
-        time_idx="time_idx",
-        target="target",
-        group_ids=["ticker"],
-        min_encoder_length=max_encoder_length // 2,
-        max_encoder_length=max_encoder_length,
-        min_prediction_length=1,
-        max_prediction_length=max_prediction_length,
-        static_categoricals=["ticker", "sector"],
-        static_reals=["beta"],
-        time_varying_known_reals=["time_idx"],
-        time_varying_unknown_categoricals=[],
-        time_varying_unknown_reals=[
-            "target",
-            "close",
-            "volume",
-            "rsi_14",
-            "macd",
-            "atr_14",
-            "volume_z_score",
-            "sentiment_score"
-        ],
-        target_normalizer=GroupNormalizer(groups=["ticker"]),
-        add_relative_time_idx=True,
-        add_target_scales=True,
-        add_encoder_length=True,
-    )
-    
-    validation = TimeSeriesDataSet.from_dataset(training, val_df, predict=True, stop_randomization=True)
-    
-    return training, validation
-
-
 def train_foundation_model(
     config_path: Optional[str] = None,
     use_synthetic_data: bool = False
 ):
     """
-    Train foundation model.
+    Train foundation model using Lightning.
     
     Args:
         config_path: Path to config file
@@ -260,101 +190,76 @@ def train_foundation_model(
         foundation_config['checkpoint_path'] = os.path.join(models_path, 'foundation', 'foundation_v1.0.pt')
         os.makedirs(os.path.dirname(foundation_config['checkpoint_path']), exist_ok=True)
     
-    # Load data and create TFT dataset
+    # Get tickers
     tickers = config.get('models', {}).get('twins', {}).get('pilot_tickers', [])
     if not tickers:
-        # Load S&P 500 tickers (or subset for faster training)
         from src.utils.tickers import get_sp500_tickers
-        tickers = get_sp500_tickers()[:100]  # Use first 100 for faster training
+        tickers = get_sp500_tickers()[:100]
     
     logger.info(f"Training on {len(tickers)} tickers")
     
-    # Create TFT dataset
-    training_dataset, validation_dataset = create_tft_dataset_from_db(
-        tickers,
+    # Training config
+    training_config = config.get('training', {}).get('foundation', {})
+    foundation_config = config.get('models', {}).get('foundation', {})
+    
+    # Create data module
+    datamodule = FoundationDataModule(
+        tickers=tickers,
         start_date='2022-01-01',
         end_date='2024-12-31',
-        max_encoder_length=config.get('models', {}).get('foundation', {}).get('tft', {}).get('max_encoder_length', 60),
-        max_prediction_length=config.get('models', {}).get('foundation', {}).get('tft', {}).get('max_prediction_length', 5)
+        max_encoder_length=foundation_config.get('tft', {}).get('max_encoder_length', 60),
+        max_prediction_length=foundation_config.get('tft', {}).get('max_prediction_length', 5),
+        batch_size=training_config.get('batch_size', 128),
+        use_synthetic=use_synthetic_data
     )
     
-    if training_dataset is None:
-        logger.error("Failed to create TFT dataset. Check database and data availability.")
-        return
-    
-    # Create data loaders
-    from torch.utils.data import DataLoader
-    
-    batch_size = config.get('training', {}).get('foundation', {}).get('batch_size', 128)
-    
-    train_dataloader = DataLoader(
-        training_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=True
+    # Create model
+    model = FoundationTrainingModule(
+        config=config,
+        learning_rate=training_config.get('learning_rate', 1e-3),
+        weight_decay=training_config.get('weight_decay', 1e-5),
+        num_epochs=training_config.get('num_epochs', 100)
     )
     
-    val_dataloader = DataLoader(
-        validation_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=True
-    )
+    # Setup data module (this creates datasets)
+    datamodule.setup('fit')
     
-    logger.info(f"Created dataloaders: train batches={len(train_dataloader)}, val batches={len(val_dataloader)}")
-    
-    # Training setup
-    training_config = config.get('training', {}).get('foundation', {})
-    
-    model = FoundationTrainingModule(config)
-    
-    # CRITICAL: Initialize TFT from dataset
+    # Initialize TFT from dataset
     logger.info("Initializing Foundation TFT from dataset...")
-    model.foundation.initialize_tft(training_dataset)
+    model.foundation.initialize_tft(datamodule.training_dataset)
+    model.tft_initialized = True
     logger.info("TFT initialized successfully")
     
-    # Get models path for checkpoint directory
-    _, models_path = setup_colab_environment(config)
+    # Get checkpoint directory
     checkpoint_dir = os.path.join(models_path, 'foundation')
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Callbacks
-    checkpoint_callback = ModelCheckpoint(
+    # Create callbacks and logger
+    callbacks = create_callbacks(
+        checkpoint_dir=checkpoint_dir,
         monitor='val_loss',
-        dirpath=checkpoint_dir,
-        filename='foundation-{epoch:02d}-{val_loss:.4f}',
+        mode='min',
         save_top_k=3,
-        mode='min'
-    )
-    
-    early_stop_callback = EarlyStopping(
-        monitor='val_loss',
         patience=training_config.get('early_stopping_patience', 15),
-        mode='min'
+        filename='foundation-{epoch:02d}-{val_loss:.4f}'
     )
     
-    # Logger
-    mlflow_logger = MLFlowLogger(
+    logger_obj = create_logger(
         experiment_name='foundation_training',
         tracking_uri=config.get('mlflow', {}).get('tracking_uri', 'file:./mlruns')
     )
     
-    # Trainer
-    trainer = pl.Trainer(
+    # Create trainer
+    trainer = create_trainer(
         max_epochs=training_config.get('num_epochs', 100),
-        callbacks=[checkpoint_callback, early_stop_callback],
-        logger=mlflow_logger,
-        accelerator='auto',
-        devices='auto',
-        log_every_n_steps=10,
+        callbacks=callbacks,
+        logger=logger_obj,
         gradient_clip_val=1.0
     )
     
     # Train
     logger.info("Starting foundation model training...")
-    trainer.fit(model, train_dataloader, val_dataloader)
+    trainer.fit(model, datamodule)
     
     # Save final checkpoint
     final_checkpoint_path = os.path.join(checkpoint_dir, 'foundation_v1.0.pt')

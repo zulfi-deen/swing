@@ -13,6 +13,7 @@ import joblib
 from pathlib import Path
 
 from src.models.ensemble import LightGBMRanker
+from src.training.train_lightgbm_lightning import train_lightgbm_ranker as train_lightgbm_ranker_lightning
 from src.data.storage import get_timescaledb_engine
 from src.utils.config import load_config
 from src.utils.mlflow_logger import log_training_run, log_model
@@ -170,7 +171,7 @@ def train_lightgbm_ranker(
 
 
 def main():
-    """Main training function."""
+    """Main training function (delegates to Lightning implementation)."""
     
     import argparse
     
@@ -191,54 +192,14 @@ def main():
     # Load config
     config = load_config()
     
-    # Load data
-    train_df, val_df = load_training_data(args.start_date, args.end_date)
-    
-    if train_df is None:
-        logger.error("Failed to load training data")
-        return
-    
-    # Train
-    ranker = train_lightgbm_ranker(train_df, val_df, config)
-    
-    # Save model
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    model_path = output_dir / f'lgbm_ranker_{args.version}.pkl'
-    joblib.dump(ranker, model_path)
-    
-    logger.info(f"Model saved to {model_path}")
-    
-    # Log to MLflow
-    try:
-        feature_importance = ranker.get_feature_importance()
-        
-        metrics = {
-            'num_features': len(feature_importance),
-            'top_feature_importance': feature_importance['importance'].iloc[0] if not feature_importance.empty else 0,
-        }
-        
-        params = {
-            'start_date': args.start_date,
-            'end_date': args.end_date,
-            'train_size': len(train_df),
-            'val_size': len(val_df),
-            **ranker.params
-        }
-        
-        log_training_run(
-            metrics=metrics,
-            params=params,
-            model_version=args.version,
-            tags={'model_type': 'lightgbm_ranker'}
-        )
-        
-        log_model(ranker, 'lightgbm_ranker', model_type='lightgbm')
-        
-        logger.info("Logged to MLflow")
-    except Exception as e:
-        logger.warning(f"Failed to log to MLflow: {e}")
+    # Use Lightning-based training
+    train_lightgbm_ranker_lightning(
+        config=config,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        model_version=args.version,
+        output_dir=args.output_dir
+    )
     
     logger.info("Training complete!")
 
