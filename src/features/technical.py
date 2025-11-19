@@ -2,8 +2,15 @@
 
 import pandas as pd
 import numpy as np
-import talib as ta
 from typing import Optional
+
+try:  # pragma: no cover - optional dependency
+    import talib as ta
+
+    TA_LIB_AVAILABLE = True
+except Exception:  # pragma: no cover - TA-Lib not installed
+    ta = None
+    TA_LIB_AVAILABLE = False
 
 
 def compute_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -17,42 +24,64 @@ def compute_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if not all(col in df.columns for col in required_cols):
         raise ValueError(f"Missing required columns: {required_cols}")
     
-    # Trend indicators
-    df['sma_20'] = ta.SMA(df['close'], timeperiod=20)
-    df['sma_50'] = ta.SMA(df['close'], timeperiod=50)
-    df['ema_12'] = ta.EMA(df['close'], timeperiod=12)
-    df['ema_26'] = ta.EMA(df['close'], timeperiod=26)
+    if TA_LIB_AVAILABLE:
+        df['sma_20'] = ta.SMA(df['close'], timeperiod=20)
+        df['sma_50'] = ta.SMA(df['close'], timeperiod=50)
+        df['ema_12'] = ta.EMA(df['close'], timeperiod=12)
+        df['ema_26'] = ta.EMA(df['close'], timeperiod=26)
+        df['macd'], df['macd_signal'], df['macd_hist'] = ta.MACD(
+            df['close'], fastperiod=12, slowperiod=26, signalperiod=9
+        )
+        df['rsi_14'] = ta.RSI(df['close'], timeperiod=14)
+        df['bbands_upper'], df['bbands_middle'], df['bbands_lower'] = ta.BBANDS(
+            df['close'], timeperiod=20, nbdevup=2, nbdevdn=2
+        )
+        df['atr_14'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=14)
+        df['stoch_k'], df['stoch_d'] = ta.STOCH(
+            df['high'], df['low'], df['close'], fastk_period=14, slowk_period=3, slowd_period=3
+        )
+        df['adx'] = ta.ADX(df['high'], df['low'], df['close'], timeperiod=14)
+        df['mfi'] = ta.MFI(df['high'], df['low'], df['close'], df['volume'], timeperiod=14)
+    else:
+        df['sma_20'] = df['close'].rolling(20).mean()
+        df['sma_50'] = df['close'].rolling(50).mean()
+        df['ema_12'] = df['close'].ewm(span=12, adjust=False).mean()
+        df['ema_26'] = df['close'].ewm(span=26, adjust=False).mean()
+        df['macd'] = df['ema_12'] - df['ema_26']
+        df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
+        df['macd_hist'] = df['macd'] - df['macd_signal']
+        delta = df['close'].diff()
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.rolling(14).mean()
+        avg_loss = loss.rolling(14).mean()
+        rs = avg_gain / (avg_loss + 1e-9)
+        df['rsi_14'] = 100 - (100 / (1 + rs))
+        rolling_mean = df['close'].rolling(20).mean()
+        rolling_std = df['close'].rolling(20).std()
+        df['bbands_upper'] = rolling_mean + 2 * rolling_std
+        df['bbands_middle'] = rolling_mean
+        df['bbands_lower'] = rolling_mean - 2 * rolling_std
+        tr = np.maximum(
+            df['high'] - df['low'],
+            np.maximum(abs(df['high'] - df['close'].shift(1)), abs(df['low'] - df['close'].shift(1))),
+        )
+        df['atr_14'] = tr.rolling(14).mean()
+        df['stoch_k'] = 100 * (df['close'] - df['low'].rolling(14).min()) / (
+            df['high'].rolling(14).max() - df['low'].rolling(14).min() + 1e-9
+        )
+        df['stoch_d'] = df['stoch_k'].rolling(3).mean()
+        df['adx'] = (abs(df['close'].diff()) / (df['close'] + 1e-9)).rolling(14).mean()
+        typical_price = (df['high'] + df['low'] + df['close']) / 3
+        raw_money_flow = typical_price * df['volume']
+        positive_flow = raw_money_flow.where(typical_price > typical_price.shift(1), 0.0)
+        negative_flow = raw_money_flow.where(typical_price < typical_price.shift(1), 0.0)
+        money_ratio = positive_flow.rolling(14).sum() / (negative_flow.rolling(14).sum() + 1e-9)
+        df['mfi'] = 100 - (100 / (1 + money_ratio))
     
-    # MACD
-    df['macd'], df['macd_signal'], df['macd_hist'] = ta.MACD(
-        df['close'], fastperiod=12, slowperiod=26, signalperiod=9
-    )
-    
-    # RSI
-    df['rsi_14'] = ta.RSI(df['close'], timeperiod=14)
-    
-    # Bollinger Bands
-    df['bbands_upper'], df['bbands_middle'], df['bbands_lower'] = ta.BBANDS(
-        df['close'], timeperiod=20, nbdevup=2, nbdevdn=2
-    )
     df['bbands_pct'] = (df['close'] - df['bbands_lower']) / (
         df['bbands_upper'] - df['bbands_lower']
     )
-    
-    # ATR (volatility)
-    df['atr_14'] = ta.ATR(df['high'], df['low'], df['close'], timeperiod=14)
-    
-    # Stochastic
-    df['stoch_k'], df['stoch_d'] = ta.STOCH(
-        df['high'], df['low'], df['close'],
-        fastk_period=14, slowk_period=3, slowd_period=3
-    )
-    
-    # ADX (trend strength)
-    df['adx'] = ta.ADX(df['high'], df['low'], df['close'], timeperiod=14)
-    
-    # Money Flow Index
-    df['mfi'] = ta.MFI(df['high'], df['low'], df['close'], df['volume'], timeperiod=14)
     
     return df
 
@@ -74,8 +103,10 @@ def compute_volume_features(df: pd.DataFrame) -> pd.DataFrame:
     df['dollar_volume'] = df['close'] * df['volume']
     df['avg_dollar_volume_20'] = df['dollar_volume'].rolling(20).mean()
     
-    # On-Balance Volume
-    df['obv'] = ta.OBV(df['close'], df['volume'])
+    if TA_LIB_AVAILABLE:
+        df['obv'] = ta.OBV(df['close'], df['volume'])
+    else:
+        df['obv'] = (np.sign(df['close'].diff()).fillna(0) * df['volume']).cumsum()
     
     # VWAP deviation
     if 'vwap' in df.columns:

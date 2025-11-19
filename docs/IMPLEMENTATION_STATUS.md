@@ -4,6 +4,24 @@ This document tracks the implementation status of features across all architectu
 
 Last Updated: 2025-01-27
 
+## ⚠️ CRITICAL AUDIT FINDINGS (2025-01-27)
+
+**BLOCKER**: Multiple critical directories and modules are missing, preventing the system from running:
+
+1. **Missing `src/models/` Directory** (9 files):
+   - `foundation.py`, `digital_twin.py`, `twin_manager.py`
+   - `ensemble.py`, `arima_garch.py`, `patterns.py`
+   - `regime.py`, `market_regime.py`, `model_registry.py`
+   - **Impact**: Cannot initialize models, run pipeline, or execute tests
+
+2. **Missing `src/data/` Directory** (3 files):
+   - `ingestion.py`, `storage.py`, `rl_state_builder.py`
+   - **Impact**: Cannot ingest data, save to database, or build RL state
+
+**See**: `docs/ARCHITECTURE_AUDIT_REPORT.md` for complete audit findings.
+
+**Action Required**: Restore missing modules before system can run.
+
 ## Architecture Versions
 
 - **v1**: Base architecture (TFT-GNN, ensemble, LLM agents, backtesting)
@@ -13,7 +31,16 @@ Last Updated: 2025-01-27
 
 ## Implementation Status
 
-### ✅ Fully Implemented
+### ⚠️ CRITICAL: Missing Core Modules
+
+**Status**: ❌ BLOCKING - System cannot run without these
+
+- [ ] **src/models/** directory (9 files) - Foundation, Digital Twins, Ensemble, etc.
+- [ ] **src/data/** directory (3 files) - Ingestion, Storage, RL State Builder
+
+**See audit report for details**: `docs/ARCHITECTURE_AUDIT_REPORT.md`
+
+### ✅ Fully Implemented (Code Present, But Cannot Run Due to Missing Dependencies)
 
 #### V1 Base Architecture
 - [x] Data ingestion (Polygon, Finnhub)
@@ -31,34 +58,34 @@ Last Updated: 2025-01-27
 - [x] Paper trading
 
 #### V2 Digital Twins
-- [x] Foundation model (TFT + GNN) (✅ Clarified: tft_gnn.py deleted)
-- [x] StockDigitalTwin architecture
-- [x] TwinManager
-- [x] Per-stock fine-tuning
-- [x] Weekly retraining pipeline (✅ Fixed MLflow logging)
-- [x] Stock characteristics table
-- [x] TFT initialization (✅ Fixed in audit)
+- [ ] Foundation model (TFT + GNN) ❌ **MISSING: src/models/foundation.py**
+- [ ] StockDigitalTwin architecture ❌ **MISSING: src/models/digital_twin.py**
+- [ ] TwinManager ❌ **MISSING: src/models/twin_manager.py**
+- [x] Per-stock fine-tuning (training scripts exist, but models missing)
+- [x] Weekly retraining pipeline (scripts exist, but models missing)
+- [x] Stock characteristics table ✅
+- [ ] TFT initialization ❌ **Cannot verify without foundation.py**
 
 #### V3 RL Portfolio
-- [x] PortfolioRLAgent (PPO)
-- [x] TradingEnvironment
-- [x] RL state builder
-- [x] Reward function (✅ Fixed portfolio vol calculation)
-- [x] Training script
-- [x] Backtesting RL vs priority scoring (✅ Fixed in audit)
+- [x] PortfolioRLAgent (PPO) ✅ **Code exists and matches v3 spec**
+- [x] TradingEnvironment ✅ **Code exists and matches v3 spec**
+- [ ] RL state builder ❌ **MISSING: src/data/rl_state_builder.py**
+- [x] Reward function ✅ **Matches v3 spec (portfolio return, drawdown, costs, diversification, Sharpe, constraints)**
+- [x] Training script ✅
+- [ ] Backtesting RL vs priority scoring ⚠️ **Cannot test without state builder**
 
 #### V4 Options Layer
-- [x] PolygonOptionsClient
-- [x] Options data ingestion
-- [x] 40 options features (OI, PCR, GEX, IV, Greeks, Term, Signals)
-- [x] Options encoder in Digital Twins
-- [x] Gamma adjustment & PCR sentiment gates
-- [x] Options in RL state (✅ Fixed: options_features now passed to RL agent)
-- [x] Options-aware explainer
-- [x] Options metrics tracker
-- [x] Schema (options_prices, options_features tables)
-- [x] Options data loading from local storage (✅ Fixed: path mismatches resolved)
-- [x] Options features in RL training environment (✅ Fixed: TradingEnvironment now handles options)
+- [ ] PolygonOptionsClient ⚠️ **Cannot verify without data/ingestion.py**
+- [ ] Options data ingestion ⚠️ **Cannot verify without data/ingestion.py**
+- [x] 40 options features ✅ **Fully implemented in src/features/options.py**
+- [ ] Options encoder in Digital Twins ❓ **Cannot verify without digital_twin.py**
+- [ ] Gamma adjustment & PCR sentiment gates ❓ **Cannot verify without digital_twin.py**
+- [x] Options in RL state ✅ **Code exists in portfolio_rl_agent.py (lines 206-229)**
+- [x] Options-aware explainer ✅ **Implemented in explainer.py (lines 77-165)**
+- [x] Options metrics tracker ✅ **Code exists in evaluation/options_metrics.py**
+- [x] Schema (options_prices, options_features tables) ✅ **Complete in schema.sql**
+- [x] Options data loading from local storage ✅ **Code exists in orchestrator.py (lines 310-313)**
+- [x] Options features in RL training environment ✅ **Code exists in rl_environment.py (lines 257-279)**
 
 ### ⚠️ Partially Implemented
 

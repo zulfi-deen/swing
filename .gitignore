@@ -1,285 +1,36 @@
-# Python
+# Python bytecode
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-*.manifest
-*.spec
 
-# Virtual Environments
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-.venv/
-conda/
-.conda/
-
-# Environment Variables
-.env
-.env.local
-.env.*.local
-*.env
-
-# IDE - VSCode
-.vscode/
-*.code-workspace
-.history/
-
-# IDE - PyCharm/IntelliJ
-.idea/
-*.iml
-*.iws
-*.ipr
-
-# IDE - Other
-*.swp
-*.swo
-*~
-.project
-.pydevproject
-.settings/
-
-# Jupyter Notebooks
-.ipynb_checkpoints/
-*.ipynb
-# Uncomment if you want to track notebooks:
-# !*.ipynb
-
-# Jupyter Notebook Checkpoints
-.jupyter/
-
-# Data Files
+# Data artifacts
 data/
-*.parquet
+!data/**/*.py
+feature_repo/data/
+data/feast/
+mlruns/
+logs/
+tmp/
+
+# Serialized datasets or exports
 *.csv
 *.tsv
 *.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!tsconfig.*.json
-*.pkl
-*.pickle
-*.h5
-*.hdf5
+*.parquet
 *.feather
 *.arrow
 
-# Models & Checkpoints
+# Model artifacts
 models/
-*.pth
-*.pt
-*.ckpt
-*.pkl
-*.h5
-*.hdf5
-*.pb
-*.onnx
-*.tflite
-*.safetensors
+!models/**/*.py
 checkpoints/
 saved_models/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.pb
+*.safetensors
+*.tflite
 
-# Feature Store (Feast)
-feature_repo/data/
-data/feast/
-*.registry.db
-*.registry
-
-# MLflow
-mlruns/
-.mlflow/
-mlflow.db
-
-# Logs
-logs/
-*.log
-*.log.*
-log/
-
-# Testing
+# Test caches
 .pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
-.hypothesis/
-.pytest_cache/
-test-results/
-junit.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Type Checking
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
-
-# Profiling
-.prof
-
-# OS Files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-Desktop.ini
-
-# Docker
-docker-compose.override.yml
-.dockerignore.local
-
-# Database Files
-*.db
-*.sqlite
-*.sqlite3
-*.db-journal
-*.db-wal
-*.db-shm
-neo4j/data/
-neo4j/logs/
-neo4j/import/
-postgres_data/
-redis_data/
-*.dump
-*.sql.gz
-
-# Redis
-dump.rdb
-*.rdb
-
-# Node.js / React (UI)
-src/ui/node_modules/
-src/ui/build/
-src/ui/dist/
-src/ui/.pnp
-src/ui/.pnp.js
-src/ui/coverage/
-src/ui/.env.local
-src/ui/.env.development.local
-src/ui/.env.test.local
-src/ui/.env.production.local
-src/ui/npm-debug.log*
-src/ui/yarn-debug.log*
-src/ui/yarn-error.log*
-src/ui/.cache/
-src/ui/.parcel-cache/
-src/ui/.next/
-src/ui/.nuxt/
-src/ui/.vuepress/dist/
-src/ui/.serverless/
-src/ui/.fusebox/
-src/ui/.dynamodb/
-src/ui/.tern-port
-src/ui/.eslintcache
-src/ui/.stylelintcache
-
-# Build Artifacts
-*.o
-*.a
-*.lib
-*.dll
-*.exe
-*.dylib
-*.so.*
-*.class
-
-# Temporary Files
-*.tmp
-*.temp
-*.bak
-*.backup
-*.swp
-*.swo
-*~
-.cache/
-tmp/
-temp/
-.tmp/
-
-# Config Files (keep examples, ignore actual)
-config/config.yaml
-config/*.yaml
-!config/config.example.yaml
-!config/*.example.yaml
-
-# S3 / Cloud Storage
-.s3_cache/
-.aws/
-*.s3
-
-# Google Drive (if synced locally)
-Google Drive/
-google_drive/
-
-# Colab
-.colab/
-*.ipynb_checkpoints/
-
-# Prefect
-.prefect/
-
-# Weights & Biases (if used)
-wandb/
-.wandb/
-
-# TensorBoard
-runs/
-tensorboard_logs/
-
-# Local Development
-.local/
-local/
-scratch/
-sandbox/
-
-# Documentation Build
-docs/_build/
-docs/.doctrees/
-site/
-
-# Package Managers
-poetry.lock
-Pipfile.lock
-yarn.lock
-package-lock.json
-
-# Secrets & Credentials
-secrets/
-credentials/
-*.key
-*.pem
-*.cert
-*.crt
-*.p12
-*.pfx
-.secrets
-.credentials
