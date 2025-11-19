@@ -1,0 +1,10 @@
+project: swing_trading
+registry: data/feast/registry.db
+provider: local
+online_store:
+  type: redis
+  connection_string: "redis://localhost:6379"
+offline_store:
+  type: file
+entity_key_serialization_version: 2
+

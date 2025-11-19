@@ -1,0 +1,299 @@
+# Swing Trading System Configuration
+
+# API Keys
+api_keys:
+  polygon:
+    api_key: "YOUR_POLYGON_API_KEY"
+  alphavantage:
+    api_key: "YOUR_ALPHAVANTAGE_API_KEY"  # Get free API key from https://www.alphavantage.co/support/#api-key
+  finnhub:
+    api_key: "YOUR_FINNHUB_API_KEY"
+  openai:
+    api_key: "YOUR_OPENAI_API_KEY"
+  fred:
+    api_key: "YOUR_FRED_API_KEY"  # Get free API key from https://fred.stlouisfed.org/docs/api/api_key.html
+
+# Data Sources
+data_sources:
+  # Market data provider selection: "polygon", "alphavantage", or "yahoo_finance"
+  market_data_provider: "polygon"  # Options: polygon, alphavantage, yahoo_finance
+  
+  polygon:
+    base_url: "https://api.polygon.io"
+    rate_limit: 5  # requests per second
+  
+  alphavantage:
+    base_url: "https://www.alphavantage.co/query"
+    rate_limit: 5  # calls per minute (free tier), 75/min (premium)
+    rate_limit_delay: 12.0  # seconds between calls (for free tier)
+  
+  yahoo_finance:
+    rate_limit_delay: 0.1  # seconds between calls (informal limit ~2000/hour)
+  
+  finnhub:
+    base_url: "https://finnhub.io/api/v1"
+    rate_limit: 60  # requests per minute
+  
+  options:
+    enabled: false  # Set to true to enable options data ingestion
+    provider: "polygon"  # Options: polygon
+    tickers: []  # Empty list = use all tickers, or specify subset (e.g., top 100 liquid stocks)
+    max_contracts_per_ticker: 1000  # Limit contracts fetched per ticker
+
+# Storage
+storage:
+  local:
+    data_dir: "data/"
+    models_dir: "models/"
+  
+  google_drive:
+    mount_path: "/content/drive/MyDrive/swing_trading"
+    enabled: false  # Auto-enabled in Colab
+  
+  timescaledb:
+    host: "localhost"
+    port: 5432
+    database: "swing_trading"
+    user: "postgres"
+    password: "YOUR_PASSWORD"
+  
+  feast:
+    registry_path: "data/feast/registry.db"
+    online_store:
+      type: "redis"
+      connection_string: "redis://localhost:6379"
+  
+  neo4j:
+    uri: "bolt://localhost:7687"
+    user: "neo4j"
+    password: "YOUR_NEO4J_PASSWORD"
+    database: "neo4j"
+
+# Model Configuration
+models:
+  # Foundation Model (Universal Market Intelligence)
+  foundation:
+    hidden_size: 256
+    lstm_layers: 2
+    attention_head_size: 8
+    attention_heads: 8
+    dropout: 0.1
+    max_encoder_length: 60
+    max_prediction_length: 5
+    learning_rate: 0.001
+    checkpoint_path: "models/foundation/foundation_v1.0.pt"
+    tft:
+      hidden_size: 256
+      lstm_layers: 2
+      attention_head_size: 8
+      dropout: 0.1
+      max_encoder_length: 60
+      max_prediction_length: 5
+    gnn:
+      hidden_dim: 64
+      num_heads: 8
+      num_layers: 2
+      dropout: 0.1
+    embeddings:
+      sector_dim: 32
+      liquidity_dim: 16
+      market_regime_dim: 16
+    backbone:
+      hidden_dims: [256, 128]
+      dropout: [0.15, 0.1]
+  
+  # Digital Twins (Stock-Specific Models)
+  twins:
+    adapter_rank: 16
+    stock_embedding_dim: 64
+    regime_embedding_dim: 32
+    options_enabled: false  # Set to true to enable options encoder in twins
+    options_embedding_dim: 32
+    pilot_tickers:
+      # Technology (7) - High beta, momentum-driven
+      - AAPL
+      - MSFT
+      - NVDA
+      - AMD
+      - INTC
+      - QCOM
+      - AVGO
+      # Financials (7) - Rate-sensitive, cyclical
+      - JPM
+      - BAC
+      - WFC
+      - GS
+      - MS
+      - C
+      - BLK
+      # Healthcare (6) - Defensive, earnings-driven
+      - JNJ
+      - UNH
+      - PFE
+      - ABBV
+      - TMO
+      - MRK
+      # Consumer Discretionary (6) - Economic sensitivity
+      - AMZN
+      - TSLA
+      - HD
+      - MCD
+      - NKE
+      - SBUX
+      # Consumer Staples (5) - Defensive, stable
+      - PG
+      - KO
+      - PEP
+      - WMT
+      - COST
+      # Energy (5) - Commodity-driven
+      - XOM
+      - CVX
+      - COP
+      - SLB
+      - EOG
+      # Communication Services (5) - Growth + value mix
+      - GOOGL
+      - META
+      - NFLX
+      - DIS
+      - CMCSA
+      # Industrials (5) - Economic cycle
+      - BA
+      - CAT
+      - UNP
+      - HON
+      - LMT
+      # Materials (2)
+      - LIN
+      - APD
+      # Utilities (1) - Low volatility
+      - NEE
+      # Real Estate (1)
+      - AMT
+    checkpoint_dir: "models/twins/"
+    fine_tune_epochs: 20
+    fine_tune_lookback_days: 180
+  
+  # Legacy TFT-GNN (kept for backward compatibility)
+  tft_gnn:
+    hidden_size: 128
+    lstm_layers: 2
+    attention_head_size: 4
+    dropout: 0.1
+    max_encoder_length: 60
+    max_prediction_length: 5
+    learning_rate: 0.001
+  
+  gnn:
+    hidden_dim: 64
+    num_heads: 8
+    num_layers: 2
+    dropout: 0.1
+    edge_threshold: 0.3
+  
+  lightgbm:
+    num_leaves: 31
+    learning_rate: 0.05
+    n_estimators: 500
+    max_depth: 6
+  
+  arima:
+    order: [1, 0, 1]
+  
+  garch:
+    p: 1
+    q: 1
+
+# Training Configuration
+training:
+  environment: "auto"  # auto, local, colab
+  
+  foundation:
+    learning_rate: 1e-3
+    batch_size: 128
+    num_epochs: 100
+    early_stopping_patience: 15
+    weight_decay: 1e-5
+    lr_scheduler: "CosineAnnealingLR"
+  
+  twins:
+    learning_rate: 5e-4
+    batch_size: 64
+    weight_decay: 1e-5
+    fine_tune_epochs: 20
+    fine_tune_lookback_days: 180
+  
+  colab:
+    data_path: "/content/drive/MyDrive/swing_trading/data"
+    models_path: "/content/drive/MyDrive/swing_trading/models"
+
+# LLM Agents
+llm_agents:
+  text_summarizer:
+    model: "gpt-4o-mini"
+    temperature: 0.1
+  
+  policy_agent:
+    model: "gpt-4o"
+    temperature: 0.2
+  
+  explainer_agent:
+    model: "gpt-4o-mini"
+    temperature: 0.3
+
+# RL Portfolio Agent
+rl_portfolio:
+  enabled: false  # Set to true to use RL agent instead of priority scoring
+  checkpoint_path: "models/rl_portfolio/agent_best.pt"
+  num_stocks: 500
+  max_positions: 15
+  options_enabled: false  # Set to true to enable options signals in RL agent
+  ppo:
+    learning_rate: 3e-4
+    clip_epsilon: 0.2
+    value_loss_coef: 0.5
+    entropy_coef: 0.01
+    gamma: 0.99
+    gae_lambda: 0.95
+    max_grad_norm: 0.5
+    ppo_epochs: 4
+
+# Trading Rules
+trading_rules:
+  max_positions: 15
+  max_sector_allocation: 0.25
+  min_probability: 0.60
+  min_dollar_volume: 5000000
+  max_bid_ask_spread: 0.005
+  days_to_earnings_avoid: 2
+  max_volatility: 0.05
+  position_size_default: 0.05  # 5% of portfolio per trade
+
+# Pipeline
+pipeline:
+  eod_time: "16:00"  # 4 PM ET
+  timezone: "America/New_York"
+  lookback_days: 252  # 1 year
+  prediction_horizon: 5  # 5 days
+
+# Monitoring
+monitoring:
+  mlflow:
+    tracking_uri: "http://localhost:5000"
+    experiment_name: "swing_trading"
+  
+  prometheus:
+    port: 9090
+
+# API
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+
+# UI
+ui:
+  api_url: "http://localhost:8000"
+  port: 3000
+
