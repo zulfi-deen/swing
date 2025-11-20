@@ -16,7 +16,6 @@ from src.models.foundation import StockTwinFoundation
 from src.training.data_modules import FoundationDataModule
 from src.training.lightning_utils import create_callbacks, create_logger, create_trainer
 from src.utils.config import load_config
-from src.utils.colab_utils import setup_colab_environment, is_colab
 
 logger = logging.getLogger(__name__)
 
@@ -181,14 +180,12 @@ def train_foundation_model(
     config = load_config(config_path)
     
     # Setup Colab environment if needed
-    data_path, models_path = setup_colab_environment(config)
-    logger.info(f"Using data_path: {data_path}, models_path: {models_path}")
-    
-    # Update checkpoint path based on environment
-    if is_colab():
-        foundation_config = config.get('models', {}).get('foundation', {})
-        foundation_config['checkpoint_path'] = os.path.join(models_path, 'foundation', 'foundation_v1.0.pt')
-        os.makedirs(os.path.dirname(foundation_config['checkpoint_path']), exist_ok=True)
+    # Get paths from config
+    storage_config = config.get('storage', {}).get('local', {})
+    models_path = storage_config.get('models_dir', 'models/')
+    if not os.path.isabs(models_path):
+        models_path = os.path.abspath(models_path)
+    logger.info(f"Using models_path: {models_path}")
     
     # Get tickers
     tickers = config.get('models', {}).get('twins', {}).get('pilot_tickers', [])

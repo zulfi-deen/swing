@@ -1,6 +1,9 @@
-"""Sync trained models from Google Drive to local MacBook
+"""DEPRECATED: Sync trained models from Google Drive to local MacBook
 
-Downloads trained model checkpoints from Google Drive to local models directory.
+This script is deprecated. The codebase now uses Lightning.ai for training and deployment.
+Google Drive sync is no longer needed.
+
+This file is kept for backward compatibility only and will be removed in a future version.
 """
 
 import os

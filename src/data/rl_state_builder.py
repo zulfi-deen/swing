@@ -36,7 +36,6 @@ class RLStateBuilder:
         prices_df: Optional[pd.DataFrame] = None,
         date: Optional[str] = None,
         config: Optional[Dict] = None,
-        neo4j_client=None,  # kept for backwards compatibility
         options_features: Optional[Dict[str, Dict]] = None,
     ) -> Dict:
         cfg = config or self.config

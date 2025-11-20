@@ -15,7 +15,7 @@ from src.models.foundation import load_foundation_model
 from src.training.train_twins import fine_tune_twin
 from src.utils.config import load_config
 from src.utils.mlflow_logger import log_training_run
-from src.utils.colab_utils import setup_colab_environment, is_colab
+# Legacy colab_utils removed - using config paths directly
 import mlflow
 import os
 
@@ -127,15 +127,15 @@ def weekly_twin_retrain_flow(config_path: Optional[str] = None):
     
     config = load_config(config_path)
     
-    # Setup Colab environment if needed
-    data_path, models_path = setup_colab_environment(config)
+    # Get paths from config
+    storage_config = config.get('storage', {}).get('local', {})
+    data_path = storage_config.get('data_dir', 'data/')
+    models_path = storage_config.get('models_dir', 'models/')
+    if not os.path.isabs(data_path):
+        data_path = os.path.abspath(data_path)
+    if not os.path.isabs(models_path):
+        models_path = os.path.abspath(models_path)
     logger.info(f"Using data_path: {data_path}, models_path: {models_path}")
-    
-    # Update foundation checkpoint path if in Colab
-    if is_colab():
-        foundation_config = config.get('models', {}).get('foundation', {})
-        if not foundation_config.get('checkpoint_path'):
-            foundation_config['checkpoint_path'] = os.path.join(models_path, 'foundation', 'foundation_v1.0.pt')
     
     # Get pilot tickers
     pilot_tickers = config.get('models', {}).get('twins', {}).get('pilot_tickers', [])
@@ -152,8 +152,8 @@ def weekly_twin_retrain_flow(config_path: Optional[str] = None):
         logger.error("Foundation model checkpoint path not configured")
         return
     
-    # Update path if in Colab and path doesn't exist
-    if is_colab() and not os.path.exists(foundation_path):
+    # Update path if path doesn't exist and try alternative location
+    if not os.path.exists(foundation_path):
         # Try to find it in models_path
         alt_path = os.path.join(models_path, 'foundation', os.path.basename(foundation_path))
         if os.path.exists(alt_path):

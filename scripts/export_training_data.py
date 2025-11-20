@@ -1,7 +1,9 @@
-"""Export training data for Colab training
+"""DEPRECATED: Export training data for Colab training
 
-Exports historical price data, features, and metadata from TimescaleDB
-to Parquet/CSV format for training in Google Colab.
+This script is deprecated. The codebase now uses Lightning.ai for training and deployment.
+Training data is accessed directly from TimescaleDB or local storage.
+
+This file is kept for backward compatibility only and will be removed in a future version.
 """
 
 import pandas as pd

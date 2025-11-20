@@ -15,7 +15,6 @@ from src.training.loss import TwinLoss
 from src.training.lightning_utils import create_callbacks, create_logger, create_trainer
 from src.data.storage import get_stock_characteristics, compute_stock_characteristics, get_timescaledb_engine
 from src.utils.config import load_config
-from src.utils.colab_utils import setup_colab_environment
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -210,7 +209,11 @@ def fine_tune_twin(
     datamodule.setup('fit')
     
     # Get checkpoint directory
-    _, models_path = setup_colab_environment(config)
+    # Get models path from config
+    storage_config = config.get('storage', {}).get('local', {})
+    models_path = storage_config.get('models_dir', 'models/')
+    if not os.path.isabs(models_path):
+        models_path = os.path.abspath(models_path)
     checkpoint_dir = os.path.join(models_path, 'twins', ticker)
     os.makedirs(checkpoint_dir, exist_ok=True)
     

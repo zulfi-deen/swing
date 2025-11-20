@@ -55,8 +55,7 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
         db_config['user'] = os.getenv('TIMESCALEDB_USER', db_config.get('user', 'postgres'))
         db_config['password'] = os.getenv('TIMESCALEDB_PASSWORD', db_config.get('password', ''))
 
-    # Graph storage is now parquet-based, no Neo4j config needed
-    # (Keeping this section removed - graphs stored in data/graphs/ directory)
+    # Graph storage is parquet-based (graphs stored in data/graphs/ directory)
     
     return config
 

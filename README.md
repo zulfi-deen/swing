@@ -4,7 +4,7 @@ A production-grade, end-to-end swing trading recommendation system for S&P 500 s
 
 ## Architecture Overview
 
-### Local MacBook Architecture
+### Deployment Architecture (Lightning.ai + Local)
 
 ```
 Data Sources (Polygon, Finnhub) 
@@ -27,14 +27,13 @@ Data Sources (Polygon, Finnhub)
     - Options-informed state encoding [if enabled]
   → LLM Agent Layer (Policy, Pattern, Explainer)
     - Options-aware explanations
-  → Output (FastAPI + React Dashboard)
+  → Output (LitServe API via Lightning + optional React dashboard)
 ```
 
-### Hybrid Training Architecture
+### Training & Serving Architecture
 
-- **Local MacBook**: Databases (TimescaleDB, Redis), storage, and inference
-- **Google Colab**: Model training with GPU acceleration
-- **Google Drive**: Data and model synchronization between MacBook and Colab
+- **Lightning.ai**: Orchestrates training jobs (foundation, twins, RL) and serves the LitServe API via a LightningApp control plane.
+- **Local Machine**: Optional local development environment for running the LightningApp, databases (TimescaleDB, Redis), and experimentation.
 
 ## Key Features
 
@@ -45,7 +44,7 @@ Data Sources (Polygon, Finnhub)
 - **LLM Agents**: Text processing, policy enforcement, and options-aware explanation generation
 - **Graph Neural Networks**: Captures inter-stock relationships via dynamic correlation graphs (built daily from price data, cached to parquet)
 - **Local-First**: All databases and storage run locally on MacBook (no cloud dependencies)
-- **Hybrid Training**: Train models in Google Colab, run inference locally
+- **Lightning-Native Training**: Train models via Lightning.ai or locally using PyTorch Lightning
 - **Explainability**: Every recommendation includes human-readable rationale with options context
 
 ## Project Structure
@@ -57,8 +56,7 @@ swing/
 │   ├── features/       # Feature engineering
 │   ├── models/         # Model architectures
 │   ├── agents/         # LLM agents + RL portfolio agent
-│   ├── api/            # FastAPI backend
-│   ├── ui/             # React dashboard
+│   ├── api/            # LitServe / FastAPI routes integrated into LightningApp
 │   ├── utils/          # Utilities
 │   ├── training/       # Training scripts (including RL)
 │   └── evaluation/     # Backtesting and evaluation
@@ -88,9 +86,9 @@ cp config/config.example.yaml config/config.yaml
 # Edit config.yaml with your API keys and database credentials
 ```
 
-3. **Start Local Databases**
+3. **Start Local Databases** (optional if running everything on Lightning.ai)
 ```bash
-# Start TimescaleDB, Neo4j, and Redis via Docker Compose
+# Start TimescaleDB and Redis via Docker Compose
 docker-compose up -d
 
 # The database schema will be automatically initialized on first startup
@@ -105,22 +103,25 @@ prefect deployment run data-ingestion/daily
 # Or run directly: python -m src.data.ingestion
 ```
 
-5. **Start API Server**
+5. **Start Lightning App (LitServe API + Control Plane)**
 ```bash
-uvicorn src.api.main:app --reload
+cd swing
+
+# Run locally with Lightning
+lightning run app app.py --open
+
+# Or run on Lightning.ai cloud
+lightning run app app.py --cloud
 ```
 
-6. **Start React Dashboard** (Optional)
-```bash
-cd src/ui
-npm install
-npm start
-```
+6. **(Optional) Web UI**
+
+A React/dashboard UI is **not included** in this repository. You can build your own frontend and point it at the LitServe API exposed by the LightningApp.
 
 ### Detailed Setup Guides
 
 - **Local Setup**: See [docs/LOCAL_SETUP.md](docs/LOCAL_SETUP.md) for complete local setup instructions
-- **Colab Training**: See [docs/COLAB_TRAINING.md](docs/COLAB_TRAINING.md) for training models in Google Colab
+- **Lightning.ai Training**: See [docs/LIGHTNING_TRAINING.md](docs/LIGHTNING_TRAINING.md) for training and running models on Lightning.ai)
 
 ## Configuration
 
@@ -132,11 +133,10 @@ Key configuration options in `config/config.yaml`:
   - Ticker subset for options (`data_sources.options.tickers`)
 - Storage configuration:
   - Local filesystem paths (`storage.local`)
-  - Google Drive paths for Colab (`storage.google_drive`)
-- Database connections (TimescaleDB, Neo4j, Redis - all local via Docker)
+- Database connections (TimescaleDB, Redis - local via Docker or Lightning volumes)
 - Model parameters (foundation, twins with options encoder, legacy models)
 - RL Portfolio configuration (with options signals support)
-- Training configuration (local vs Colab)
+- Training configuration (local vs Lightning-managed)
 - Risk rules and constraints
 
 ## Training

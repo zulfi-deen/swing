@@ -1,7 +1,9 @@
-"""Sync local data to Google Drive
+"""DEPRECATED: Sync local data to Google Drive
 
-Copies training data exports from local MacBook to Google Drive
-for use in Colab training.
+This script is deprecated. The codebase now uses Lightning.ai for training and deployment.
+Google Drive sync is no longer needed.
+
+This file is kept for backward compatibility only and will be removed in a future version.
 """
 
 import os

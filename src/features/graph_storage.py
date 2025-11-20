@@ -1,6 +1,7 @@
 """Parquet-based graph storage for correlation graphs
 
-Replaces Neo4j with lightweight parquet file storage for daily correlation graphs.
+Uses lightweight parquet file storage for daily correlation graphs.
+Graphs are computed daily from price data and cached to parquet files.
 """
 
 import os

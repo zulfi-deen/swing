@@ -1,6 +1,9 @@
-"""Feast Feature Store Client
+"""DEPRECATED: Feast Feature Store Client
 
-Client for interacting with Feast feature store.
+This module is deprecated. Feast feature store is not currently integrated into the pipeline.
+All features are computed on-the-fly during the daily pipeline.
+
+This file is kept for reference only and will be removed in a future version.
 """
 
 import pandas as pd

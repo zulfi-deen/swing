@@ -101,7 +101,6 @@ def test_rl_state_builder_with_options():
         macro_context=macro_context,
         prices_df=None,
         date=None,
-        neo4j_client=None,
         options_features=options_features
     )
     
@@ -177,7 +176,6 @@ def test_rl_state_builder_without_options():
         macro_context=macro_context,
         prices_df=None,
         date=None,
-        neo4j_client=None,
         options_features=None
     )
     

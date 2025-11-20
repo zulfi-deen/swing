@@ -12,7 +12,7 @@ from src.models.ensemble import LightGBMRanker
 from src.training.data_modules import LightGBMDataModule
 from src.training.lightning_utils import create_callbacks, create_logger, create_trainer
 from src.utils.config import load_config
-from src.utils.colab_utils import setup_colab_environment
+# Legacy colab_utils removed - using config paths directly
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +129,11 @@ def train_lightgbm_ranker(
     # Setup data module
     datamodule.setup('fit')
     
-    # Get output directory
-    _, models_path = setup_colab_environment(config)
+    # Get output directory from config
+    storage_config = config.get('storage', {}).get('local', {})
+    models_path = storage_config.get('models_dir', 'models/')
+    if not os.path.isabs(models_path):
+        models_path = os.path.abspath(models_path)
     output_dir = os.path.join(models_path, 'ensemble')
     os.makedirs(output_dir, exist_ok=True)
     

@@ -16,7 +16,7 @@ from src.models.digital_twin import StockDigitalTwin
 from src.training.train_twins_lightning import fine_tune_twin as fine_tune_twin_lightning
 from src.data.storage import get_stock_characteristics, compute_stock_characteristics, get_timescaledb_engine
 from src.utils.config import load_config
-from src.utils.colab_utils import setup_colab_environment, is_colab
+# Legacy colab_utils removed - using config paths directly
 import pandas as pd
 
 logger = logging.getLogger(__name__)

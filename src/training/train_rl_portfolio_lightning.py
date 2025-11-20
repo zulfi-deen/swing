@@ -11,7 +11,7 @@ from src.agents.portfolio_rl_agent import PortfolioRLAgent, PPOTrainer
 from src.training.rl_environment import TradingEnvironment
 from src.training.lightning_utils import create_callbacks, create_logger, create_trainer
 from src.utils.config import load_config
-from src.utils.colab_utils import setup_colab_environment
+# Legacy colab_utils removed - using config paths directly
 
 logger = logging.getLogger(__name__)
 
@@ -202,8 +202,11 @@ def train_rl_agent(
         batch_size=ppo_config.get('batch_size', 64)
     )
     
-    # Get checkpoint directory
-    _, models_path = setup_colab_environment(config)
+    # Get checkpoint directory from config
+    storage_config = config.get('storage', {}).get('local', {})
+    models_path = storage_config.get('models_dir', 'models/')
+    if not os.path.isabs(models_path):
+        models_path = os.path.abspath(models_path)
     checkpoint_dir = os.path.join(models_path, 'rl_portfolio')
     os.makedirs(checkpoint_dir, exist_ok=True)
     

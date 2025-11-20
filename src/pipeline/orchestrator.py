@@ -37,8 +37,6 @@ class PipelineOrchestrator:
         self.config = load_config(config_path)
         self.db_engine = get_timescaledb_engine()
         
-        # Graph storage is now parquet-based, no Neo4j client needed
-        
         # Initialize agents
         self.text_agent = TextSummarizerAgent(
             model=self.config['llm_agents']['text_summarizer']['model']
