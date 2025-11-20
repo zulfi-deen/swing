@@ -1,4 +1,4 @@
-.PHONY: help install setup test run-api run-ui docker-up docker-down
+.PHONY: help install setup test run docker-up docker-down
 
 help:
 	@echo "Swing Trading System - Makefile"
@@ -7,10 +7,9 @@ help:
 	@echo "  make install      - Install Python dependencies"
 	@echo "  make setup        - Set up database and initial config"
 	@echo "  make test         - Run tests"
-	@echo "  make run-api      - Start FastAPI server"
-	@echo "  make run-ui       - Start React development server"
-	@echo "  make docker-up    - Start all services with Docker Compose"
-	@echo "  make docker-down  - Stop all services"
+	@echo "  make run          - Start Lightning App (API + Training)"
+	@echo "  make docker-up    - Start TimescaleDB with Docker"
+	@echo "  make docker-down  - Stop TimescaleDB"
 
 install:
 	pip install -r requirements.txt
@@ -26,11 +25,8 @@ setup:
 test:
 	pytest tests/
 
-run-api:
-	uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
-
-run-ui:
-	cd src/ui && npm install && npm start
+run:
+	lightning run app app.py
 
 docker-up:
 	docker-compose up -d

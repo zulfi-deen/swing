@@ -46,6 +46,15 @@ def load_config(config_path: str = None) -> Dict[str, Any]:
             config['api_keys']['openai'].get('api_key', '')
         )
     
+    # Override database config with environment variables
+    if 'storage' in config and 'timescaledb' in config['storage']:
+        db_config = config['storage']['timescaledb']
+        db_config['host'] = os.getenv('TIMESCALEDB_HOST', db_config.get('host', 'localhost'))
+        db_config['port'] = int(os.getenv('TIMESCALEDB_PORT', db_config.get('port', 5432)))
+        db_config['database'] = os.getenv('TIMESCALEDB_DATABASE', db_config.get('database', 'swing_trading'))
+        db_config['user'] = os.getenv('TIMESCALEDB_USER', db_config.get('user', 'postgres'))
+        db_config['password'] = os.getenv('TIMESCALEDB_PASSWORD', db_config.get('password', ''))
+
     # Graph storage is now parquet-based, no Neo4j config needed
     # (Keeping this section removed - graphs stored in data/graphs/ directory)
     

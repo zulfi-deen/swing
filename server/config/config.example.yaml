@@ -46,9 +46,7 @@ storage:
     data_dir: "data/"
     models_dir: "models/"
   
-  google_drive:
-    mount_path: "/content/drive/MyDrive/swing_trading"
-    enabled: false  # Auto-enabled in Colab
+  # Deprecated: google_drive configuration removed as part of migration to Lightning AI Platform
   
   timescaledb:
     host: "localhost"
@@ -221,10 +219,6 @@ training:
     weight_decay: 1e-5
     fine_tune_epochs: 20
     fine_tune_lookback_days: 180
-  
-  colab:
-    data_path: "/content/drive/MyDrive/swing_trading/data"
-    models_path: "/content/drive/MyDrive/swing_trading/models"
 
 # LLM Agents
 llm_agents:
@@ -284,14 +278,9 @@ monitoring:
   prometheus:
     port: 9090
 
-# API
+# API - Removed 'reload' as it is managed by LitServe/Lightning
 api:
   host: "0.0.0.0"
   port: 8000
-  reload: true
 
-# UI
-ui:
-  api_url: "http://localhost:8000"
-  port: 3000
-
+# UI section removed as UI is no longer part of this deployment

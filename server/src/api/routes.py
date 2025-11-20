@@ -1,7 +1,6 @@
-"""FastAPI main application"""
+"""FastAPI routes for Swing Trading API"""
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
@@ -14,20 +13,10 @@ from src.utils.config import load_config
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Swing Trading API", version="1.0.0")
+router = APIRouter()
 
-# Global model registry (loaded on startup)
+# Global model registry (loaded via LitAPI setup or dependency injection)
 model_registry: ModelRegistry = None
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 
 class TradeRecommendation(BaseModel):
     ticker: str
@@ -39,40 +28,21 @@ class TradeRecommendation(BaseModel):
     position_size_pct: float
     rationale: List[str]
 
-
 class DailyBrief(BaseModel):
     date: str
     market_context: dict
     brief: str
     trades: List[TradeRecommendation]
 
-
-@app.get("/")
+@router.get("/")
 def root():
-    return {"message": "Swing Trading API", "status": "running"}
+    return {"message": "Swing Trading API (LitServe)", "status": "running"}
 
-
-@app.get("/health")
+@router.get("/health")
 def health_check():
     return {"status": "healthy"}
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Load models on startup."""
-    global model_registry
-    try:
-        config = load_config()
-        model_registry = ModelRegistry.get_twin_manager(config)
-        if model_registry:
-            logger.info("Models loaded successfully on startup")
-        else:
-            logger.warning("Model registry not initialized (models may not be available)")
-    except Exception as e:
-        logger.error(f"Error loading models on startup: {e}", exc_info=True)
-
-
-@app.get("/recommendations/latest", response_model=List[TradeRecommendation])
+@router.get("/recommendations/latest", response_model=List[TradeRecommendation])
 def get_latest_recommendations():
     """Get today's trade recommendations."""
     
@@ -111,8 +81,7 @@ def get_latest_recommendations():
         logger.error(f"Error fetching recommendations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/recommendations/{date}", response_model=List[TradeRecommendation])
+@router.get("/recommendations/{date}", response_model=List[TradeRecommendation])
 def get_recommendations_by_date(date: str):
     """Get recommendations for a specific date."""
     
@@ -150,14 +119,11 @@ def get_recommendations_by_date(date: str):
         logger.error(f"Error fetching recommendations for {date}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/brief/latest", response_model=DailyBrief)
+@router.get("/brief/latest", response_model=DailyBrief)
 def get_daily_brief():
     """Get latest daily brief."""
     
     try:
-        from src.agents.explainer import ExplainerAgent
-        
         engine = get_timescaledb_engine()
         
         # Get latest date
@@ -223,8 +189,7 @@ def get_daily_brief():
         logger.error(f"Error fetching brief: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/explain/{ticker}")
+@router.get("/explain/{ticker}")
 def explain_recommendation(ticker: str, date: Optional[str] = None):
     """Get detailed explanation for a ticker recommendation."""
     
@@ -284,14 +249,11 @@ def explain_recommendation(ticker: str, date: Optional[str] = None):
         logger.error(f"Error explaining recommendation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/performance/backtest")
+@router.get("/performance/backtest")
 def get_backtest_results():
     """Get historical backtest performance."""
     
     try:
-        from src.evaluation.backtest import backtest_strategy
-        
         # Load predictions and actual returns from database
         engine = get_timescaledb_engine()
         
@@ -333,9 +295,6 @@ def get_backtest_results():
             "num_trades": 0
         }
         
-        # Note: Full backtest would use backtest_strategy() function
-        # This is a placeholder
-        
         return {
             "period": "90 days",
             "metrics": metrics,
@@ -346,8 +305,7 @@ def get_backtest_results():
         logger.error(f"Error fetching backtest results: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/performance/paper")
+@router.get("/performance/paper")
 def get_paper_trading_performance():
     """Get paper trading performance."""
     
@@ -363,18 +321,15 @@ def get_paper_trading_performance():
         logger.error(f"Error fetching paper trading performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/models/twins")
+@router.get("/models/twins")
 def list_twins():
     """List all available digital twins with metadata."""
     
     try:
-        global model_registry
-        
-        # Use cached registry or load if needed
-        if model_registry is None:
-            config = load_config()
-            model_registry = ModelRegistry.get_twin_manager(config)
+        # Use global model registry if available
+        # Logic simplified: if we haven't loaded it, try to load config
+        config = load_config()
+        model_registry = ModelRegistry.get_twin_manager(config)
         
         if model_registry is None:
             return {
@@ -396,24 +351,17 @@ def list_twins():
         logger.error(f"Error listing twins: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/models/twins/{ticker}")
+@router.get("/models/twins/{ticker}")
 def get_twin_info(ticker: str):
     """Get detailed information about a specific twin."""
     
     try:
-        global model_registry
-        
-        # Use cached registry or load if needed
-        if model_registry is None:
-            config = load_config()
-            model_registry = ModelRegistry.get_twin_manager(config)
+        config = load_config()
+        model_registry = ModelRegistry.get_twin_manager(config)
         
         if model_registry is None:
             raise HTTPException(status_code=503, detail="TwinManager not available")
         
-        # Check if ticker is in pilot list
-        config = load_config()
         pilot_tickers = config.get('models', {}).get('twins', {}).get('pilot_tickers', [])
         if ticker not in pilot_tickers:
             raise HTTPException(status_code=404, detail=f"Twin for {ticker} not found (not in pilot list)")
@@ -439,20 +387,16 @@ def get_twin_info(ticker: str):
         logger.error(f"Error getting twin info for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.get("/predictions/{ticker}/regime")
+@router.get("/predictions/{ticker}/regime")
 def get_ticker_regime(ticker: str, date: Optional[str] = None):
     """Get current regime classification for a ticker."""
     
     try:
         from src.models.regime import get_regime_name, get_regime_trading_strategy
-        from src.data.storage import get_timescaledb_engine
-        import pandas as pd
         
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
         
-        # Load recent price data
         engine = get_timescaledb_engine()
         query = f"""
             SELECT * FROM prices
@@ -467,11 +411,9 @@ def get_ticker_regime(ticker: str, date: Optional[str] = None):
         if prices_df.empty:
             raise HTTPException(status_code=404, detail=f"No price data found for {ticker}")
         
-        # Get stock characteristics
         from src.data.storage import get_stock_characteristics
         stock_chars = get_stock_characteristics(ticker)
         
-        # Detect regime (simplified - would use twin in production)
         from src.models.regime import detect_regime_features
         regime_id = detect_regime_features(prices_df, stock_chars)
         regime_name = get_regime_name(regime_id)
@@ -490,9 +432,3 @@ def get_ticker_regime(ticker: str, date: Optional[str] = None):
     except Exception as e:
         logger.error(f"Error getting regime for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
