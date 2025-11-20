@@ -22,6 +22,43 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def check_alpha_decay(characteristics: dict, threshold: float = 0.0) -> dict:
+    """
+    Check if stock alpha has decayed below threshold (alpha decay guardrail).
+    
+    Args:
+        characteristics: Dictionary with stock characteristics including 'current_alpha'
+        threshold: Minimum acceptable alpha (default 0.0)
+    
+    Returns:
+        Dictionary with:
+            - 'decayed': bool indicating if alpha is below threshold
+            - 'alpha': current alpha value
+            - 'status': 'active' or 'decayed'
+            - 'message': descriptive message
+    """
+    current_alpha = characteristics.get('current_alpha', 0.0)
+    decayed = current_alpha < threshold
+    
+    result = {
+        'decayed': decayed,
+        'alpha': current_alpha,
+        'status': 'decayed' if decayed else 'active',
+        'message': (
+            f"Alpha decay detected: {current_alpha:.4f} < {threshold:.4f}"
+            if decayed
+            else f"Alpha acceptable: {current_alpha:.4f} >= {threshold:.4f}"
+        )
+    }
+    
+    if decayed:
+        logger.warning(f"ALPHA DECAY GUARDRAIL TRIGGERED: {result['message']}")
+    else:
+        logger.info(f"Alpha guardrail check passed: {result['message']}")
+    
+    return result
+
+
 @task(cache_key_fn=task_input_hash)
 def update_stock_characteristics_task(ticker: str):
     """Update stock characteristics for a ticker."""
@@ -33,7 +70,8 @@ def update_stock_characteristics_task(ticker: str):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=180)
     
-    query = f"""
+    # Fetch stock price data
+    stock_query = f"""
         SELECT * FROM prices
         WHERE ticker = '{ticker}'
         AND time >= '{start_date}'
@@ -41,12 +79,23 @@ def update_stock_characteristics_task(ticker: str):
         ORDER BY time
     """
     
-    prices_df = pd.read_sql(query, engine)
+    prices_df = pd.read_sql(stock_query, engine)
+    
+    # Fetch market (SPY) data for alpha calculation
+    market_query = f"""
+        SELECT * FROM prices
+        WHERE ticker = 'SPY'
+        AND time >= '{start_date}'
+        AND time <= '{end_date}'
+        ORDER BY time
+    """
+    
+    market_df = pd.read_sql(market_query, engine)
     
     if not prices_df.empty:
-        characteristics = compute_stock_characteristics(prices_df, ticker)
+        characteristics = compute_stock_characteristics(prices_df, market_df if not market_df.empty else None)
         update_stock_characteristics(ticker, characteristics)
-        logger.info(f"Updated stock characteristics for {ticker}")
+        logger.info(f"Updated stock characteristics for {ticker}: beta={characteristics.get('beta', 1.0):.2f}, alpha={characteristics.get('current_alpha', 0.0):.4f}")
     else:
         logger.warning(f"No price data found for {ticker}")
 
@@ -117,9 +166,13 @@ def weekly_twin_retrain_flow(config_path: Optional[str] = None):
         logger.error(f"Error loading foundation model: {e}")
         return
     
+    # Get alpha decay threshold from config (default 0.0)
+    alpha_threshold = config.get('trading_rules', {}).get('min_alpha', 0.0)
+    
     # Start MLflow run
     with mlflow.start_run(run_name=f"weekly_retrain_{datetime.now().strftime('%Y%m%d')}"):
         results = []
+        decayed_tickers = []
         
         for ticker in pilot_tickers:
             logger.info(f"Processing {ticker}")
@@ -127,7 +180,41 @@ def weekly_twin_retrain_flow(config_path: Optional[str] = None):
             # Update stock characteristics
             update_stock_characteristics_task(ticker)
             
-            # Fine-tune twin
+            # Check alpha decay guardrail
+            from src.data.storage import get_stock_characteristics
+            characteristics = get_stock_characteristics(ticker)
+            
+            if characteristics:
+                guardrail_result = check_alpha_decay(characteristics, threshold=alpha_threshold)
+                
+                # Log guardrail status to MLflow
+                mlflow.log_metric(f"{ticker}_alpha", guardrail_result['alpha'])
+                mlflow.log_metric(f"{ticker}_alpha_decayed", 1 if guardrail_result['decayed'] else 0)
+                
+                # If alpha has decayed, mark ticker and optionally skip fine-tuning
+                if guardrail_result['decayed']:
+                    decayed_tickers.append(ticker)
+                    logger.warning(
+                        f"ALPHA DECAY GUARDRAIL: {ticker} has decayed alpha ({guardrail_result['alpha']:.4f}). "
+                        f"Skipping fine-tuning for this ticker."
+                    )
+                    
+                    # Mark as inactive in characteristics
+                    characteristics['status'] = 'decayed'
+                    characteristics['guardrail_message'] = guardrail_result['message']
+                    from src.data.storage import update_stock_characteristics
+                    update_stock_characteristics(ticker, characteristics)
+                    
+                    # Add to results with decayed status
+                    results.append({
+                        'ticker': ticker,
+                        'status': 'decayed',
+                        'error': guardrail_result['message'],
+                        'metrics': {'current_alpha': guardrail_result['alpha']}
+                    })
+                    continue
+            
+            # Fine-tune twin (only if alpha is acceptable)
             result = fine_tune_twin_task(ticker, foundation_model, config)
             results.append(result)
             
@@ -141,13 +228,22 @@ def weekly_twin_retrain_flow(config_path: Optional[str] = None):
         
         # Summary
         successful = sum(1 for r in results if r['status'] == 'success')
-        failed = len(results) - successful
+        failed = sum(1 for r in results if r['status'] == 'error')
+        decayed = sum(1 for r in results if r['status'] == 'decayed')
         
-        logger.info(f"Retraining complete: {successful} successful, {failed} failed")
+        logger.info(
+            f"Retraining complete: {successful} successful, {failed} failed, {decayed} decayed (alpha guardrail)"
+        )
         
         mlflow.log_metric("total_twins", len(results))
         mlflow.log_metric("successful", successful)
         mlflow.log_metric("failed", failed)
+        mlflow.log_metric("decayed", decayed)
+        
+        if decayed_tickers:
+            logger.warning(
+                f"Alpha decay guardrail triggered for {len(decayed_tickers)} tickers: {', '.join(decayed_tickers)}"
+            )
         
         return results
 

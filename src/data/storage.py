@@ -131,14 +131,78 @@ def update_stock_characteristics(
         json.dump(existing, fp, indent=2)
 
 
-def compute_stock_characteristics(prices_df: pd.DataFrame) -> Dict:
+def compute_stock_characteristics(
+    prices_df: pd.DataFrame, 
+    market_df: Optional[pd.DataFrame] = None
+) -> Dict:
+    """
+    Compute stock characteristics including beta and alpha.
+    
+    Args:
+        prices_df: DataFrame with stock price data (must have 'close' column)
+        market_df: Optional DataFrame with market (SPY) price data for alpha calculation
+    
+    Returns:
+        Dictionary with stock characteristics including beta, alpha, etc.
+    """
     if prices_df is None or prices_df.empty:
         return {}
-    returns = prices_df["close"].pct_change().dropna()
-    beta = float(returns.cov(returns) / returns.var()) if not returns.empty else 1.0
+    
+    stock_returns = prices_df["close"].pct_change().dropna()
+    
+    if stock_returns.empty:
+        return {
+            "beta": 1.0,
+            "current_alpha": 0.0,
+            "mean_reversion_strength": 0.0,
+            "liquidity_regime": 1,
+        }
+    
+    # Calculate beta and alpha if market data is provided
+    beta = 1.0
+    current_alpha = 0.0
+    
+    if market_df is not None and not market_df.empty:
+        market_returns = market_df["close"].pct_change().dropna()
+        
+        # Align returns by date
+        if 'time' in prices_df.columns:
+            stock_returns.index = pd.to_datetime(prices_df["time"]).iloc[1:]
+        if 'time' in market_df.columns:
+            market_returns.index = pd.to_datetime(market_df["time"]).iloc[1:]
+        
+        # Align by index (date)
+        aligned_returns = pd.DataFrame({
+            'stock': stock_returns,
+            'market': market_returns
+        }).dropna()
+        
+        if len(aligned_returns) > 1:
+            # Calculate beta: Cov(stock, market) / Var(market)
+            covariance = aligned_returns['stock'].cov(aligned_returns['market'])
+            market_variance = aligned_returns['market'].var()
+            
+            if market_variance > 0:
+                beta = float(covariance / market_variance)
+            else:
+                beta = 1.0
+            
+            # Calculate alpha: Mean(stock_return) - beta * Mean(market_return)
+            mean_stock_return = float(aligned_returns['stock'].mean())
+            mean_market_return = float(aligned_returns['market'].mean())
+            current_alpha = mean_stock_return - beta * mean_market_return
+        else:
+            beta = 1.0
+            current_alpha = 0.0
+    else:
+        # If no market data, use default beta of 1.0 and alpha of 0.0
+        beta = 1.0
+        current_alpha = 0.0
+    
     return {
-        "beta": beta,
-        "mean_reversion_strength": float(1 / (1 + returns.std())),
+        "beta": float(beta),
+        "current_alpha": float(current_alpha),
+        "mean_reversion_strength": float(1 / (1 + stock_returns.std())),
         "liquidity_regime": 1,
     }
 

@@ -544,68 +544,88 @@ class PipelineOrchestrator:
             # Use TwinManager if available and ticker is in pilot list
             if self.twin_manager and ticker in pilot_tickers:
                 try:
-                    twin = self.twin_manager.get_twin(ticker)
-                    if twin:
-                        # Prepare batch for twin using proper batch preparation
-                        batch = prepare_batch_for_twin(
-                            features_df,
-                            ticker,
-                            normalizer=None,  # Could add normalizer if needed
-                            config=self.config
+                    # Check alpha decay guardrail before using twin
+                    from src.data.storage import get_stock_characteristics
+                    characteristics = get_stock_characteristics(ticker)
+                    
+                    # Check if twin has decayed alpha
+                    if characteristics and characteristics.get('status') == 'decayed':
+                        alpha_threshold = self.config.get('trading_rules', {}).get('min_alpha', 0.0)
+                        current_alpha = characteristics.get('current_alpha', 0.0)
+                        logger.warning(
+                            f"ALPHA DECAY GUARDRAIL: Skipping twin predictions for {ticker} "
+                            f"(alpha={current_alpha:.4f} < threshold={alpha_threshold:.4f})"
                         )
-                        
-                        # Get options features tensor if available
-                        options_tensor = None
-                        if options_features and ticker in options_features:
-                            import torch
-                            # Convert options features dict to tensor (40 features)
-                            opts = options_features[ticker]
-                            options_list = [
-                                opts.get('call_oi', 0), opts.get('put_oi', 0), opts.get('total_oi', 0),
-                                opts.get('call_volume', 0), opts.get('put_volume', 0), opts.get('total_volume', 0),
-                                opts.get('oi_change_pct', 0.0), opts.get('volume_zscore', 0.0),
-                                opts.get('pcr_oi', 1.0), opts.get('pcr_volume', 1.0), opts.get('pcr_zscore', 0.0),
-                                float(opts.get('pcr_extreme_bullish', False)), float(opts.get('pcr_extreme_bearish', False)),
-                                opts.get('pcr_change', 0.0),
-                                opts.get('max_pain_strike', 0.0), opts.get('max_pain_distance_pct', 0.0),
-                                opts.get('total_gamma', 0.0), float(opts.get('gamma_sign', 0)),
-                                opts.get('gamma_concentration', 0.0),
-                                opts.get('gamma_flip_strike', 0.0) if opts.get('gamma_flip_strike') else 0.0,
-                                opts.get('gamma_flip_distance_pct', 0.0) if opts.get('gamma_flip_distance_pct') else 0.0,
-                                opts.get('atm_call_iv', 0.25), opts.get('atm_put_iv', 0.25),
-                                opts.get('iv_skew', 0.0), opts.get('put_call_iv_ratio', 1.0),
-                                opts.get('iv_percentile', 0.5), opts.get('iv_rank', 0.5), opts.get('iv_change_pct', 0.0),
-                                opts.get('net_delta', 0.0), opts.get('net_gamma', 0.0), opts.get('net_vega', 0.0),
-                                opts.get('net_theta', 0.0), opts.get('net_delta_abs', 0.0),
-                                opts.get('front_month_oi', 0), opts.get('next_month_oi', 0),
-                                opts.get('roll_ratio', 1.0), opts.get('term_curve_slope', 0.0),
-                                opts.get('trend_signal', 0.0), opts.get('sentiment_signal', 0.0),
-                                float(opts.get('gamma_signal', 0))
-                            ]
-                            options_tensor = torch.tensor(options_list, dtype=torch.float32).unsqueeze(0)  # (1, 40)
-                        
-                        # Get twin predictions
-                        twin_preds = twin.forward(batch, graph, options_features=options_tensor)
-                        
-                        tft_gnn_preds = {
-                            'return': float(twin_preds['expected_return'].item() if hasattr(twin_preds['expected_return'], 'item') else twin_preds['expected_return']),
-                            'prob_hit_long': float(twin_preds['hit_prob'].item() if hasattr(twin_preds['hit_prob'], 'item') else twin_preds['hit_prob']),
-                            'volatility': float(twin_preds['volatility'].item() if hasattr(twin_preds['volatility'], 'item') else twin_preds['volatility']),
-                            'quantiles': {
-                                'q10': float(twin_preds['quantiles']['q10'].item() if hasattr(twin_preds['quantiles']['q10'], 'item') else twin_preds['quantiles']['q10']),
-                                'q50': float(twin_preds['quantiles']['q50'].item() if hasattr(twin_preds['quantiles']['q50'], 'item') else twin_preds['quantiles']['q50']),
-                                'q90': float(twin_preds['quantiles']['q90'].item() if hasattr(twin_preds['quantiles']['q90'], 'item') else twin_preds['quantiles']['q90'])
-                            },
-                            'regime': int(twin_preds['regime'].item() if hasattr(twin_preds['regime'], 'item') else twin_preds['regime'])
-                        }
-                    else:
-                        # Fallback if twin not available
+                        # Use fallback predictions instead
                         tft_gnn_preds = {
                             'return': 0.0,
                             'prob_hit_long': 0.5,
                             'volatility': 0.02,
                             'quantiles': {'q10': -0.05, 'q50': 0.0, 'q90': 0.05}
                         }
+                    else:
+                        twin = self.twin_manager.get_twin(ticker)
+                        if twin:
+                            # Prepare batch for twin using proper batch preparation
+                            batch = prepare_batch_for_twin(
+                                features_df,
+                                ticker,
+                                normalizer=None,  # Could add normalizer if needed
+                                config=self.config
+                            )
+                            
+                            # Get options features tensor if available
+                            options_tensor = None
+                            if options_features and ticker in options_features:
+                                import torch
+                                # Convert options features dict to tensor (40 features)
+                                opts = options_features[ticker]
+                                options_list = [
+                                    opts.get('call_oi', 0), opts.get('put_oi', 0), opts.get('total_oi', 0),
+                                    opts.get('call_volume', 0), opts.get('put_volume', 0), opts.get('total_volume', 0),
+                                    opts.get('oi_change_pct', 0.0), opts.get('volume_zscore', 0.0),
+                                    opts.get('pcr_oi', 1.0), opts.get('pcr_volume', 1.0), opts.get('pcr_zscore', 0.0),
+                                    float(opts.get('pcr_extreme_bullish', False)), float(opts.get('pcr_extreme_bearish', False)),
+                                    opts.get('pcr_change', 0.0),
+                                    opts.get('max_pain_strike', 0.0), opts.get('max_pain_distance_pct', 0.0),
+                                    opts.get('total_gamma', 0.0), float(opts.get('gamma_sign', 0)),
+                                    opts.get('gamma_concentration', 0.0),
+                                    opts.get('gamma_flip_strike', 0.0) if opts.get('gamma_flip_strike') else 0.0,
+                                    opts.get('gamma_flip_distance_pct', 0.0) if opts.get('gamma_flip_distance_pct') else 0.0,
+                                    opts.get('atm_call_iv', 0.25), opts.get('atm_put_iv', 0.25),
+                                    opts.get('iv_skew', 0.0), opts.get('put_call_iv_ratio', 1.0),
+                                    opts.get('iv_percentile', 0.5), opts.get('iv_rank', 0.5), opts.get('iv_change_pct', 0.0),
+                                    opts.get('net_delta', 0.0), opts.get('net_gamma', 0.0), opts.get('net_vega', 0.0),
+                                    opts.get('net_theta', 0.0), opts.get('net_delta_abs', 0.0),
+                                    opts.get('front_month_oi', 0), opts.get('next_month_oi', 0),
+                                    opts.get('roll_ratio', 1.0), opts.get('term_curve_slope', 0.0),
+                                    opts.get('trend_signal', 0.0), opts.get('sentiment_signal', 0.0),
+                                    float(opts.get('gamma_signal', 0))
+                                ]
+                                options_tensor = torch.tensor(options_list, dtype=torch.float32).unsqueeze(0)  # (1, 40)
+                            
+                            # Get twin predictions
+                            twin_preds = twin.forward(batch, graph, options_features=options_tensor)
+                            
+                            tft_gnn_preds = {
+                                'return': float(twin_preds['expected_return'].item() if hasattr(twin_preds['expected_return'], 'item') else twin_preds['expected_return']),
+                                'prob_hit_long': float(twin_preds['hit_prob'].item() if hasattr(twin_preds['hit_prob'], 'item') else twin_preds['hit_prob']),
+                                'volatility': float(twin_preds['volatility'].item() if hasattr(twin_preds['volatility'], 'item') else twin_preds['volatility']),
+                                'quantiles': {
+                                    'q10': float(twin_preds['quantiles']['q10'].item() if hasattr(twin_preds['quantiles']['q10'], 'item') else twin_preds['quantiles']['q10']),
+                                    'q50': float(twin_preds['quantiles']['q50'].item() if hasattr(twin_preds['quantiles']['q50'], 'item') else twin_preds['quantiles']['q50']),
+                                    'q90': float(twin_preds['quantiles']['q90'].item() if hasattr(twin_preds['quantiles']['q90'], 'item') else twin_preds['quantiles']['q90'])
+                                },
+                                'regime': int(twin_preds['regime'].item() if hasattr(twin_preds['regime'], 'item') else twin_preds['regime'])
+                            }
+                        else:
+                            # Fallback if twin not available
+                            tft_gnn_preds = {
+                                'return': 0.0,
+                                'prob_hit_long': 0.5,
+                                'volatility': 0.02,
+                                'quantiles': {'q10': -0.05, 'q50': 0.0, 'q90': 0.05}
+                            }
                 except Exception as e:
                     logger.warning(f"Error getting twin prediction for {ticker}: {e}, using fallback")
                     tft_gnn_preds = {

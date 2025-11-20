@@ -165,14 +165,24 @@ def fine_tune_twin(
     if not stock_chars:
         logger.info(f"Computing stock characteristics for {ticker}")
         engine = get_timescaledb_engine()
-        query = f"""
+        stock_query = f"""
             SELECT * FROM prices
             WHERE ticker = '{ticker}'
             ORDER BY time DESC
             LIMIT {lookback_days}
         """
-        prices_df = pd.read_sql(query, engine)
-        stock_chars = compute_stock_characteristics(prices_df, ticker)
+        prices_df = pd.read_sql(stock_query, engine)
+        
+        # Fetch market (SPY) data for alpha calculation
+        market_query = f"""
+            SELECT * FROM prices
+            WHERE ticker = 'SPY'
+            ORDER BY time DESC
+            LIMIT {lookback_days}
+        """
+        market_df = pd.read_sql(market_query, engine)
+        
+        stock_chars = compute_stock_characteristics(prices_df, market_df if not market_df.empty else None)
     
     # Training config
     training_config = config.get('training', {}).get('twins', {})
