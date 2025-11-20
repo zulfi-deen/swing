@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { BacktestResults, PaperTradingMetrics } from '../api/types';
 import MainLayout from '../layouts/MainLayout';
 import Card from '../components/Card';
-import { BarChart3, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -13,8 +13,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
-  Line,
 } from 'recharts';
 
 export default function Performance() {
@@ -207,4 +205,5 @@ function MetricCard({ name, value, format }: MetricCardProps) {
     </div>
   );
 }
+
 

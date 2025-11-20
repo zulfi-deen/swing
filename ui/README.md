@@ -69,3 +69,4 @@ src/
 └── App.tsx       # Main app with routing
 ```
 
+

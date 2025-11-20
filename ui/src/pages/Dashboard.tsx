@@ -172,3 +172,4 @@ function TradeCard({ trade }: { trade: TradeRecommendation }) {
   );
 }
 
+
